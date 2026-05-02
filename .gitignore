@@ -1,0 +1,15 @@
+node_modules/
+dist/
+dist-electron/
+out/
+release/
+.vite/
+.env
+.env.*
+!.env.example
+*.log
+*.local
+*.sqlite
+*.sqlite3
+*.db
+
