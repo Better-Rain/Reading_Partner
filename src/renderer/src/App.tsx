@@ -17,6 +17,7 @@ import {
   Hand,
   KeyRound,
   Languages,
+  Maximize2,
   MessageSquarePlus,
   Minus,
   Pencil,
@@ -547,6 +548,7 @@ function AnnotationOverlay({
                 ? '批注'
                 : '书签'}
           </strong>
+          <time>{formatTime(hoveredAnnotation.annotation.createdAt)}</time>
           <p>{getAnnotationPreview(hoveredAnnotation.annotation)}</p>
         </div>
       )}
@@ -574,6 +576,7 @@ function App(): JSX.Element {
   const [scale, setScale] = useState(1.08)
   const [isPanMode, setIsPanMode] = useState(false)
   const [isPanning, setIsPanning] = useState(false)
+  const [isWindowMaximized, setIsWindowMaximized] = useState(false)
   const [selectedAnnotationColor, setSelectedAnnotationColor] = useState(annotationColorPresets[0].value)
   const [draftNote, setDraftNote] = useState('')
   const [selectionNoteDraft, setSelectionNoteDraft] = useState('')
@@ -1438,8 +1441,31 @@ function App(): JSX.Element {
     setStatus('API Key 已清除')
   }
 
+  const toggleWindowMaximize = async (): Promise<void> => {
+    const maximized = await window.readingPartner.toggleMaximizeWindow()
+    setIsWindowMaximized(maximized)
+  }
+
   return (
     <div className="app-shell">
+      <header className="window-titlebar">
+        <div className="window-titlebar-brand">
+          <span className="window-title-dot" />
+          <strong>Reading Partner</strong>
+        </div>
+        <div className="window-controls">
+          <button title="最小化" onClick={() => void window.readingPartner.minimizeWindow()}>
+            <Minus size={14} />
+          </button>
+          <button title={isWindowMaximized ? '还原' : '最大化'} onClick={() => void toggleWindowMaximize()}>
+            <Maximize2 size={14} />
+          </button>
+          <button className="close" title="关闭" onClick={() => void window.readingPartner.closeWindow()}>
+            <X size={15} />
+          </button>
+        </div>
+      </header>
+      <div className="app-layout">
       <aside className="library-panel">
         <div className="brand">
           <div className="brand-mark">RP</div>
@@ -1828,6 +1854,7 @@ function App(): JSX.Element {
           />
         )}
       </aside>
+      </div>
     </div>
   )
 }
@@ -2008,13 +2035,19 @@ function NotesPanel({
                     <span>{preview}</span>
                   </span>
                   <span className="annotation-summary-meta">
-                    第 {annotation.pageNumber} 页
+                    第 {annotation.pageNumber} 页 · {formatTime(annotation.createdAt)}
                     {expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
                   </span>
                 </button>
 
                 {expanded && (
                   <div className="annotation-detail">
+                    <div className="annotation-timestamp">
+                      创建于 {formatTime(annotation.createdAt)}
+                      {annotation.updatedAt !== annotation.createdAt
+                        ? ` · 更新于 ${formatTime(annotation.updatedAt)}`
+                        : ''}
+                    </div>
                     {annotation.selectedText && <blockquote>{annotation.selectedText}</blockquote>}
                     {editingId === annotation.id ? (
                       <>

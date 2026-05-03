@@ -1,149 +1,131 @@
-# Roadmap
+# Reading Partner 开发路线图
 
-## Phase 0: Project Foundation
+## 阶段 0：项目基础
 
-Status: in progress.
+状态：已完成
 
-Goals:
+- [x] 初始化 Git 仓库。
+- [x] 创建 Electron + React + TypeScript 工程。
+- [x] 建立 `npm run dev`、`npm run typecheck`、`npm run build`。
+- [x] 编写架构、数据模型、AI Provider 策略和用户配置文档。
+- [x] 推送到 GitHub 仓库。
 
-- Initialize Git repository.
-- Create Electron + React + TypeScript scaffold.
-- Define architecture, data model, and AI provider strategy.
-- Establish lint, typecheck, and build scripts.
+## 阶段 1：PDF 阅读 MVP
 
-Exit criteria:
+状态：已完成核心闭环
 
-- `npm run dev` opens a desktop window.
-- `npm run typecheck` passes.
-- The repository contains durable planning documents.
+- [x] 打开本地 PDF 文件。
+- [x] 使用 PDF.js / react-pdf 渲染页面。
+- [x] 支持文本选择。
+- [x] 支持上一页、下一页和页码输入跳转。
+- [x] 支持 Ctrl + 滚轮缩放。
+- [x] 支持放大后的横向和纵向拖动。
+- [x] 修复放大后底部显示不全的问题。
+- [x] 本地持久化导入文档。
+- [x] 本地持久化高亮、批注和书签。
+- [x] 将高亮和批注真正渲染到 PDF 视觉层。
+- [x] 处理 PDF.js worker 版本不一致问题。
+- [x] 增加无边框窗口和自定义窗口控制按钮。
 
-## Phase 1: PDF Reading MVP
+后续可选：
 
-Goals:
+- [ ] 多页连续滚动阅读。
+- [ ] PDF 目录大纲同步。
+- [ ] 多窗口阅读。
 
-- Open local PDF files.
-- Render pages with text selection.
-- Support page navigation and zoom.
-- Persist imported documents in SQLite.
-- Persist annotations, bookmarks, and notes.
+## 阶段 2：批注和笔记体验
 
-Initial scope:
+状态：已完成第一版
 
-- One active PDF at a time.
-- Text selection-based annotation.
-- Annotation list in the right panel.
-- Page-level bookmarks.
+- [x] 选区浮动工具栏：高亮、批注、翻译、解释、生词。
+- [x] 右侧笔记列表可滚动。
+- [x] 笔记默认折叠，用户可展开查看。
+- [x] 批注可编辑、删除、跳转。
+- [x] 批注/高亮/书签显示创建和更新时间。
+- [x] 高亮、批注支持预设荧光笔颜色。
+- [x] 阅读区顶部提供颜色调色盘。
+- [x] 鼠标悬浮到高亮/批注/书签时显示浮窗。
+- [x] 快捷键：`H` 高亮、`N` 批注、`D` 拖动。
 
-Deferred:
+后续可选：
 
-- Writing annotations back into PDF files.
-- Multi-window reading.
-- PDF outline synchronization.
+- [ ] 标签、分类和筛选。
+- [ ] 批量导出笔记。
+- [ ] 写回 PDF 注释。
 
-## Phase 2: AI-Assisted Reading
+## 阶段 3：AI 辅助阅读
 
-Status: in progress.
+状态：已完成第一版
 
-Implemented:
+- [x] 支持 OpenAI-compatible Provider 配置。
+- [x] 通过 Electron `safeStorage` 加密保存 API Key。
+- [x] 主进程发起流式 AI 请求。
+- [x] 选区翻译、解释、总结。
+- [x] AI 输出保存为与原文相关的笔记。
+- [x] 文档问答：使用本地检索片段作为上下文。
+- [x] 共读对话：支持持续上下文和选区上下文。
+- [x] 对话内容支持 Markdown 渲染。
+- [x] 过滤模型 reasoning 内容，避免思考过程混入最终回答。
+- [x] 新建对话草稿态：发送第一条消息后才保存。
+- [x] 对话标题自动生成，并支持用户手动改名。
 
-- Configurable OpenAI-compatible provider presets.
-- Encrypted API Key storage through Electron `safeStorage`.
-- Main-process streaming AI requests.
-- Selection translation, explanation, and summary entry points.
-- AI output saved back as source-linked notes.
+后续可选：
 
-Remaining goals:
+- [ ] 取消正在运行的 AI 请求。
+- [ ] 独立 AI 产物浏览器。
+- [ ] 更强的引用来源检查和片段查看。
+- [ ] Provider 的 base URL / model 高级编辑。
 
-- Configure OpenAI-compatible providers.
-- Add DeepSeek and Alibaba Bailian/Qwen presets.
-- Add Kimi and Zhipu presets.
-- Stream model output in the right panel.
-- Save AI output as source-linked notes.
-- Add cancellable requests.
-- Add model/base URL editing in the UI.
-- Add saved AI artifact browser separate from note annotations.
+## 阶段 4：英文阅读和词汇工具
 
-Initial AI actions:
+状态：已完成第一版
 
-- Translate selected text.
-- Explain selected text.
-- Summarize selected text.
-- Ask a question about selected text.
+- [x] 本地词汇表和 IPC API。
+- [x] 右侧词汇面板。
+- [x] 选区加入词汇本，并保存来源页码和原句。
+- [x] AI 辅助生成或优化词义。
+- [x] CSV 词典导入。
+- [x] StarDict / ECDICT 导入。
+- [x] 创建词汇时优先本地词典查词。
 
-Exit criteria:
+后续可选：
 
-- A user can select PDF text, ask for an explanation, and save the result as a note bound to the selected passage.
+- [ ] 词汇导出。
+- [ ] 复习卡片。
+- [ ] 词形还原和短语识别优化。
 
-## Phase 3: English Reading Tools
+## 阶段 5：本地搜索和 RAG
 
-Status: in progress.
+状态：已完成第一版
 
-Implemented:
+- [x] 提取 PDF 文本到页级记录。
+- [x] 拆分段落感知的文档 chunks。
+- [x] 缓存文本索引，避免重复提取。
+- [x] 当前文档本地搜索并跳转到匹配页。
+- [x] 文档问答使用本地检索片段。
+- [x] 共读对话可结合当前选区和文档检索上下文。
 
-- Local vocabulary table and IPC APIs.
-- Right-side vocabulary panel.
-- Manual vocabulary entry for the active PDF.
-- Add selected PDF text to the vocabulary book with source page and source sentence.
-- AI-assisted vocabulary definition refinement and write-back.
-- CSV and StarDict dictionary import with exact local lookup before creating vocabulary entries.
+后续可选：
 
-Goals:
+- [ ] 升级 SQLite FTS5 全文搜索。
+- [ ] 增加向量索引。
+- [ ] 多文档项目级检索。
 
-- Add local English-Chinese dictionary lookup.
-- Add vocabulary book.
-- Save word, definition, source sentence, document, and page.
-- Add AI fallback for phrases and difficult sentences.
+## 阶段 6：知识组织和导出
 
-Recommended source:
+状态：未开始
 
-- ECDICT local dictionary imported into SQLite.
+- [ ] 将高亮转换为摘录卡片。
+- [ ] 标签、反链、父子关系。
+- [ ] 章节总结。
+- [ ] Markdown 导出。
+- [ ] Anki 友好格式导出。
 
-Remaining work:
+## 阶段 7：高级阅读能力
 
-- Import ECDICT into a local lookup table.
-- Add export support for vocabulary and review cards.
+状态：未开始
 
-## Phase 4: Search and RAG
-
-Status: in progress.
-
-Implemented:
-
-- Extract PDF text into page-level rows.
-- Split extracted text into paragraph-aware chunks.
-- Cache text indexes locally and skip repeat extraction after all pages are processed.
-- Search the active document locally from the right-side Search tab and jump to matched pages.
-- Ask first-version document questions from the AI tab using locally retrieved text chunks with page citations.
-- Continue document-grounded co-reading conversations with persisted chat history and optional selected-text context.
-
-Goals:
-
-- Extract PDF text into page and paragraph chunks.
-- Upgrade keyword search to SQLite FTS5 full-text search.
-- Add embeddings and vector retrieval.
-- Improve questions across a document with better retrieval, stronger citation controls, and conversation source inspection.
-
-Important rule:
-
-- Do not send entire books to the model by default. Retrieve relevant chunks and cite source pages.
-
-## Phase 5: Knowledge Organization
-
-Goals:
-
-- Convert highlights into excerpt cards.
-- Add tags, backlinks, and parent-child relationships.
-- Generate chapter summaries.
-- Generate review cards.
-- Export Markdown and Anki-friendly formats.
-
-## Phase 6: Advanced Reading
-
-Goals:
-
-- OCR for scanned PDFs.
-- Import existing PDF annotations.
-- Export annotations back to PDF where practical.
-- Multi-document projects.
-- Backup and migration.
-- Windows installer.
+- [ ] 扫描版 PDF OCR。
+- [ ] 导入已有 PDF 注释。
+- [ ] 备份和迁移。
+- [ ] Windows 安装包。

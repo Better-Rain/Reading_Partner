@@ -14,6 +14,9 @@ import {
 } from '../shared/types'
 
 const api: ReadingPartnerApi = {
+  minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
+  toggleMaximizeWindow: () => ipcRenderer.invoke('window:toggleMaximize'),
+  closeWindow: () => ipcRenderer.invoke('window:close'),
   openPdfDialog: () => ipcRenderer.invoke('documents:openPdfDialog'),
   readPdf: (documentId: string) => ipcRenderer.invoke('documents:readPdf', documentId),
   listDocuments: () => ipcRenderer.invoke('documents:list'),

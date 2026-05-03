@@ -258,6 +258,9 @@ export type AIStreamEvent =
     }
 
 export type ReadingPartnerApi = {
+  minimizeWindow: () => Promise<void>
+  toggleMaximizeWindow: () => Promise<boolean>
+  closeWindow: () => Promise<void>
   openPdfDialog: () => Promise<OpenPdfResult | null>
   readPdf: (documentId: string) => Promise<ArrayBuffer>
   listDocuments: () => Promise<DocumentRecord[]>

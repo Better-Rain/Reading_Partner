@@ -38,6 +38,7 @@ const createWindow = (): void => {
     height: 960,
     minWidth: 1100,
     minHeight: 720,
+    frame: false,
     show: false,
     title: 'Reading Partner',
     webPreferences: {
@@ -60,6 +61,28 @@ const createWindow = (): void => {
 }
 
 const registerIpc = (): void => {
+  ipcMain.handle('window:minimize', () => {
+    mainWindow?.minimize()
+  })
+
+  ipcMain.handle('window:toggleMaximize', () => {
+    if (!mainWindow) {
+      return false
+    }
+
+    if (mainWindow.isMaximized()) {
+      mainWindow.unmaximize()
+      return false
+    }
+
+    mainWindow.maximize()
+    return true
+  })
+
+  ipcMain.handle('window:close', () => {
+    mainWindow?.close()
+  })
+
   ipcMain.handle('documents:list', () => database.listDocuments())
 
   ipcMain.handle('documents:openPdfDialog', async () => {

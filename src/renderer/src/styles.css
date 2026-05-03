@@ -30,10 +30,72 @@ button {
 }
 
 .app-shell {
+  display: flex;
+  height: 100vh;
+  flex-direction: column;
+  background: #edf0f5;
+}
+
+.window-titlebar {
+  display: flex;
+  height: 38px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #d9dee8;
+  background: #f8f9fc;
+  color: #263447;
+  padding-left: 14px;
+  -webkit-app-region: drag;
+}
+
+.window-titlebar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.window-titlebar-brand strong {
+  font-size: 13px;
+}
+
+.window-title-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #234e70;
+}
+
+.window-controls {
+  display: inline-flex;
+  align-self: stretch;
+  -webkit-app-region: no-drag;
+}
+
+.window-controls button {
+  display: grid;
+  width: 46px;
+  place-items: center;
+  background: transparent;
+  color: #425066;
+  cursor: pointer;
+}
+
+.window-controls button:hover {
+  background: #e8edf5;
+}
+
+.window-controls button.close:hover {
+  background: #d95050;
+  color: #fff;
+}
+
+.app-layout {
   display: grid;
   grid-template-columns: 280px minmax(520px, 1fr) 360px;
-  height: 100vh;
-  background: #edf0f5;
+  min-height: 0;
+  flex: 1;
 }
 
 .library-panel,
@@ -269,9 +331,11 @@ button:disabled {
 }
 
 .page-input {
-  display: flex;
+  display: grid;
+  width: 112px;
   height: 34px;
   align-items: center;
+  grid-template-columns: 48px 1fr;
   gap: 6px;
   border: 1px solid #d9dee8;
   border-radius: 8px;
@@ -281,10 +345,16 @@ button:disabled {
 
 .page-input input {
   appearance: textfield;
-  width: 48px;
+  width: 100%;
   border: 0;
   outline: 0;
   text-align: center;
+}
+
+.page-input span {
+  min-width: 0;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .page-input input::-webkit-inner-spin-button,
@@ -452,6 +522,13 @@ button:disabled {
   display: block;
   margin-bottom: 5px;
   font-size: 13px;
+}
+
+.pdf-annotation-tooltip time {
+  display: block;
+  margin-bottom: 6px;
+  color: #6d7787;
+  font-size: 12px;
 }
 
 .pdf-annotation-tooltip p {
@@ -853,6 +930,11 @@ button:disabled {
 
 .annotation-detail {
   margin-top: 10px;
+}
+
+.annotation-timestamp {
+  color: #6d7787;
+  font-size: 12px;
 }
 
 .annotation-detail blockquote {
