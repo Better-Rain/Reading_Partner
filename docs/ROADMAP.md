@@ -85,7 +85,7 @@ Implemented:
 - Manual vocabulary entry for the active PDF.
 - Add selected PDF text to the vocabulary book with source page and source sentence.
 - AI-assisted vocabulary definition refinement and write-back.
-- CSV dictionary import and exact local lookup before creating vocabulary entries.
+- CSV and StarDict dictionary import with exact local lookup before creating vocabulary entries.
 
 Goals:
 

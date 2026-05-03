@@ -24,6 +24,7 @@ const api: ReadingPartnerApi = {
     ipcRenderer.invoke('vocabulary:updateDefinition', input),
   deleteVocabulary: (id: string) => ipcRenderer.invoke('vocabulary:delete', id),
   lookupDictionary: (query: string) => ipcRenderer.invoke('dictionary:lookup', query),
+  listDictionarySources: () => ipcRenderer.invoke('dictionary:sources'),
   importDictionaryCsvDialog: () => ipcRenderer.invoke('dictionary:importCsvDialog'),
   listAIProviders: () => ipcRenderer.invoke('aiProviders:list'),
   upsertAIProvider: (input: UpsertAIProviderInput) =>

@@ -110,3 +110,18 @@ Imported local dictionary entries.
 | exchange | text nullable | Inflection/exchange data. |
 | source | text | Imported file path or source label. |
 | updated_at | text | ISO timestamp. |
+
+### dictionary_sources
+
+Registered external dictionary sources.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| id | text primary key | UUID. |
+| type | text | `csv` or `stardict`. |
+| label | text | Display name. |
+| path | text unique | Source path, usually `.ifo` for StarDict. |
+| entry_count | integer nullable | Source-provided entry count. |
+| created_at | text | ISO timestamp. |
+
+Large StarDict dictionaries are looked up from their source files instead of copied into the SQL table.

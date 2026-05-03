@@ -103,10 +103,20 @@ export type DictionaryLookupResult = {
   entry: DictionaryEntryRecord | null
 }
 
+export type DictionarySourceRecord = {
+  id: string
+  type: 'csv' | 'stardict'
+  label: string
+  path: string
+  entryCount: number | null
+  createdAt: string
+}
+
 export type ImportDictionaryResult = {
   imported: number
   skipped: number
   sourcePath: string
+  sourceType: 'csv' | 'stardict'
 }
 
 export type UpsertAIProviderInput = {
@@ -176,6 +186,7 @@ export type ReadingPartnerApi = {
   ) => Promise<VocabularyRecord>
   deleteVocabulary: (id: string) => Promise<void>
   lookupDictionary: (query: string) => Promise<DictionaryLookupResult>
+  listDictionarySources: () => Promise<DictionarySourceRecord[]>
   importDictionaryCsvDialog: () => Promise<ImportDictionaryResult | null>
   listAIProviders: () => Promise<AIProviderRecord[]>
   upsertAIProvider: (input: UpsertAIProviderInput) => Promise<AIProviderRecord>

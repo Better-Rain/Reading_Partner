@@ -5,6 +5,7 @@ import { runOpenAICompatibleCompletion } from './ai'
 import { ReadingPartnerDatabase } from './database'
 import { parseDictionaryCsv } from './dictionaryImport'
 import { KeyStore } from './keyStore'
+import { resolveStarDictIfoPath, StarDictSource } from './stardict'
 import {
   AIStreamEvent,
   CreateAnnotationInput,
@@ -17,6 +18,7 @@ import {
 let mainWindow: BrowserWindow | null = null
 let database: ReadingPartnerDatabase
 let keyStore: KeyStore
+const starDictSources = new Map<string, StarDictSource>()
 
 const toArrayBuffer = (buffer: Buffer): ArrayBuffer =>
   buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer
@@ -101,17 +103,41 @@ const registerIpc = (): void => {
     database.deleteVocabulary(id)
   })
 
-  ipcMain.handle('dictionary:lookup', (_event, query: string) => ({
-    query,
-    entry: database.lookupDictionary(query)
-  }))
+  ipcMain.handle('dictionary:lookup', (_event, query: string) => {
+    const sqlEntry = database.lookupDictionary(query)
+
+    if (sqlEntry) {
+      return {
+        query,
+        entry: sqlEntry
+      }
+    }
+
+    for (const source of starDictSources.values()) {
+      const entry = source.lookup(query)
+
+      if (entry) {
+        return {
+          query,
+          entry
+        }
+      }
+    }
+
+    return {
+      query,
+      entry: null
+    }
+  })
+
+  ipcMain.handle('dictionary:sources', () => database.listDictionarySources())
 
   ipcMain.handle('dictionary:importCsvDialog', async () => {
     const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
-      title: 'Import Dictionary CSV',
+      title: 'Import Dictionary',
       properties: ['openFile'],
       filters: [
-        { name: 'CSV Dictionary', extensions: ['csv'] },
+        { name: 'Dictionary', extensions: ['csv', 'ifo', 'idx', 'dict'] },
         { name: 'All Files', extensions: ['*'] }
       ]
     })
@@ -121,13 +147,34 @@ const registerIpc = (): void => {
     }
 
     const sourcePath = result.filePaths[0]
+
+    if (/\.(ifo|idx|dict)$/i.test(sourcePath)) {
+      const ifoPath = resolveStarDictIfoPath(sourcePath)
+      const source = new StarDictSource(ifoPath)
+      starDictSources.set(ifoPath, source)
+      database.registerDictionarySource({
+        type: 'stardict',
+        label: source.label,
+        path: ifoPath,
+        entryCount: source.entryCount
+      })
+
+      return {
+        imported: source.entryCount ?? 0,
+        skipped: 0,
+        sourcePath: ifoPath,
+        sourceType: 'stardict'
+      }
+    }
+
     const content = await readFile(sourcePath, 'utf8')
     const entries = parseDictionaryCsv(content, sourcePath)
     const imported = database.importDictionaryEntries(entries)
 
     return {
       ...imported,
-      sourcePath
+      sourcePath,
+      sourceType: 'csv'
     }
   })
 
@@ -198,6 +245,17 @@ app.whenReady().then(() => {
   void ReadingPartnerDatabase.open(join(app.getPath('userData'), 'reading-partner.sqlite')).then(
     (store) => {
       database = store
+      for (const source of database.listDictionarySources()) {
+        if (source.type !== 'stardict') {
+          continue
+        }
+
+        try {
+          starDictSources.set(source.path, new StarDictSource(source.path))
+        } catch (error) {
+          console.error(`Failed to load StarDict source ${source.path}`, error)
+        }
+      }
       registerIpc()
       createWindow()
     }

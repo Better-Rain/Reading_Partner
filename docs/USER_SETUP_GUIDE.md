@@ -160,16 +160,19 @@ secrets.json
 
 ## 7. Import a Local English-Chinese Dictionary
 
-The app can import a CSV dictionary file for local lookup before spending model tokens. The intended source is ECDICT's `stardict.csv`.
+The app can use a local dictionary before spending model tokens. It supports:
+
+- ECDICT-style `stardict.csv`.
+- StarDict binary dictionaries with `.ifo`, `.idx`, and `.dict` files.
 
 Recommended workflow:
 
 1. Download or clone ECDICT on your machine.
-2. Locate `stardict.csv`.
+2. Locate either `stardict.csv` or the StarDict `.ifo` file.
 3. Open Reading Partner.
 4. Go to the right-side `词汇` tab.
-5. Click `导入词典 CSV`.
-6. Select `stardict.csv`.
+5. Click `导入词典`.
+6. Select `stardict.csv` or a `.ifo` file.
 7. Wait for the status line to show the imported count.
 
 After import:
@@ -182,3 +185,5 @@ Supported CSV shapes:
 
 - ECDICT-like column order: `word, phonetic, definition, translation, pos, ... exchange ...`.
 - Header-based CSVs with fields such as `word`, `phonetic`, `definition`, `translation`, `pos`, and `exchange`.
+
+For large StarDict dictionaries, the app registers the dictionary source and performs exact lookups on demand. It does not copy millions of entries into the main app database.

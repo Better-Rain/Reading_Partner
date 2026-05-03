@@ -56,4 +56,4 @@ The app can now store provider API keys through Electron `safeStorage`, run Open
 
 The app also includes the first local vocabulary workflow: selected PDF text can be saved to the active document's vocabulary book, vocabulary items are persisted in SQLite with source page metadata, and entries can ask AI to refine their definitions.
 
-Local dictionary CSV import is available from the `词汇` tab. After importing an ECDICT-style `stardict.csv`, selected words are looked up locally before using AI.
+Local dictionary import is available from the `词汇` tab. After importing an ECDICT-style CSV or StarDict `.ifo/.idx/.dict` dictionary, selected words are looked up locally before using AI.

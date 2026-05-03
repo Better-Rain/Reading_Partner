@@ -11,6 +11,7 @@ import {
   CreateAnnotationInput,
   CreateVocabularyInput,
   DictionaryEntryRecord,
+  DictionarySourceRecord,
   DocumentRecord,
   UpdateVocabularyDefinitionInput,
   UpsertAIProviderInput,
@@ -101,6 +102,15 @@ type DictionaryEntryRow = {
   updated_at: string
 }
 
+type DictionarySourceRow = {
+  id: string
+  type: DictionarySourceRecord['type']
+  label: string
+  path: string
+  entry_count: number | null
+  created_at: string
+}
+
 const toDocument = (row: DocumentRow): DocumentRecord => ({
   id: row.id,
   title: row.title,
@@ -169,6 +179,15 @@ const toDictionaryEntry = (row: DictionaryEntryRow): DictionaryEntryRecord => ({
   exchange: row.exchange,
   source: row.source,
   updatedAt: row.updated_at
+})
+
+const toDictionarySource = (row: DictionarySourceRow): DictionarySourceRecord => ({
+  id: row.id,
+  type: row.type,
+  label: row.label,
+  path: row.path,
+  entryCount: row.entry_count,
+  createdAt: row.created_at
 })
 
 const normalizeDictionaryWord = (word: string): string => word.trim().toLocaleLowerCase()
@@ -438,6 +457,57 @@ export class ReadingPartnerDatabase {
     return { imported, skipped }
   }
 
+  listDictionarySources(): DictionarySourceRecord[] {
+    const rows = this.query<DictionarySourceRow>(
+      'select * from dictionary_sources order by created_at desc'
+    )
+
+    return rows.map(toDictionarySource)
+  }
+
+  registerDictionarySource(input: {
+    type: DictionarySourceRecord['type']
+    label: string
+    path: string
+    entryCount?: number | null
+  }): DictionarySourceRecord {
+    const existing = this.get<DictionarySourceRow>('select * from dictionary_sources where path = ?', [
+      input.path
+    ])
+    const timestamp = now()
+
+    if (existing) {
+      this.db.run(
+        `update dictionary_sources
+         set type = ?, label = ?, entry_count = ?, created_at = ?
+         where id = ?`,
+        [input.type, input.label, input.entryCount ?? null, timestamp, existing.id]
+      )
+      this.persist()
+
+      return toDictionarySource(
+        this.get<DictionarySourceRow>('select * from dictionary_sources where id = ?', [existing.id]) ??
+          existing
+      )
+    }
+
+    const id = randomUUID()
+    this.db.run(
+      `insert into dictionary_sources (
+        id, type, label, path, entry_count, created_at
+      ) values (?, ?, ?, ?, ?, ?)`,
+      [id, input.type, input.label, input.path, input.entryCount ?? null, timestamp]
+    )
+    this.persist()
+
+    const row = this.get<DictionarySourceRow>('select * from dictionary_sources where id = ?', [id])
+    if (!row) {
+      throw new Error(`Dictionary source not found after insert: ${id}`)
+    }
+
+    return toDictionarySource(row)
+  }
+
   listAIProviders(): AIProviderRecord[] {
     const rows = this.query<AIProviderRow>(
       'select * from ai_providers order by enabled desc, label asc'
@@ -630,6 +700,15 @@ export class ReadingPartnerDatabase {
 
       create index if not exists idx_dictionary_entries_word
         on dictionary_entries(normalized_word);
+
+      create table if not exists dictionary_sources (
+        id text primary key,
+        type text not null check(type in ('csv', 'stardict')),
+        label text not null,
+        path text not null unique,
+        entry_count integer,
+        created_at text not null
+      );
     `)
   }
 

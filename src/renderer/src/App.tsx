@@ -30,6 +30,7 @@ import {
   DocumentRecord,
   OpenPdfResult,
   ProviderKeyStatus,
+  DictionarySourceRecord,
   VocabularyRecord
 } from '../../shared/types'
 
@@ -116,6 +117,7 @@ function App(): JSX.Element {
   const [pdfError, setPdfError] = useState<string | null>(null)
   const [annotations, setAnnotations] = useState<AnnotationRecord[]>([])
   const [vocabulary, setVocabulary] = useState<VocabularyRecord[]>([])
+  const [dictionarySources, setDictionarySources] = useState<DictionarySourceRecord[]>([])
   const [providers, setProviders] = useState<AIProviderRecord[]>([])
   const [keyStatus, setKeyStatus] = useState<ProviderKeyStatus[]>([])
   const [activeTab, setActiveTab] = useState<PanelTab>('notes')
@@ -153,6 +155,7 @@ function App(): JSX.Element {
   useEffect(() => {
     void refreshLibrary()
     void refreshProviders()
+    void refreshDictionarySources()
   }, [])
 
   useEffect(() => {
@@ -229,6 +232,11 @@ function App(): JSX.Element {
     ])
     setProviders(providerList)
     setKeyStatus(statusList)
+  }
+
+  const refreshDictionarySources = async (): Promise<void> => {
+    const sources = await window.readingPartner.listDictionarySources()
+    setDictionarySources(sources)
   }
 
   const refreshAnnotations = async (documentId: string): Promise<void> => {
@@ -483,6 +491,7 @@ function App(): JSX.Element {
       }
 
       setStatus(`词典导入完成：${result.imported} 条，跳过 ${result.skipped} 条`)
+      await refreshDictionarySources()
     } catch (error) {
       setStatus(`词典导入失败：${error instanceof Error ? error.message : String(error)}`)
     }
@@ -893,6 +902,7 @@ function App(): JSX.Element {
         {activeTab === 'vocab' && (
           <VocabularyPanel
             hasDocument={Boolean(activeDocument)}
+            dictionarySources={dictionarySources}
             vocabulary={vocabulary}
             onCreate={(word, definition) => void createVocabulary(word, definition)}
             onDefine={(item) => void defineVocabularyWithAI(item)}
@@ -1033,6 +1043,7 @@ function AiPanel({ aiRun, readyProvider, selection, onRun }: AiPanelProps): JSX.
 }
 
 type VocabularyPanelProps = {
+  dictionarySources: DictionarySourceRecord[]
   hasDocument: boolean
   vocabulary: VocabularyRecord[]
   onCreate: (word: string, definition: string) => void
@@ -1042,6 +1053,7 @@ type VocabularyPanelProps = {
 }
 
 function VocabularyPanel({
+  dictionarySources,
   hasDocument,
   vocabulary,
   onCreate,
@@ -1070,8 +1082,13 @@ function VocabularyPanel({
       <div className="vocab-composer">
         <button className="secondary-action" onClick={onImportDictionary}>
           <Upload size={16} />
-          导入词典 CSV
+          导入词典
         </button>
+        <p className="dictionary-status">
+          {dictionarySources.length > 0
+            ? `已加载 ${dictionarySources.length} 个本地词典`
+            : '尚未加载本地词典'}
+        </p>
         <input
           disabled={!hasDocument}
           placeholder="单词或短语"
