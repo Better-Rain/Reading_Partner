@@ -283,14 +283,18 @@ button:disabled {
 }
 
 .pdf-stage {
-  display: flex;
+  display: block;
   width: max-content;
-  min-width: calc(100% + 192px);
-  min-height: calc(100% + 192px);
-  align-items: flex-start;
-  box-sizing: border-box;
-  justify-content: center;
-  padding: 96px;
+  min-width: 100%;
+  min-height: 100%;
+  box-sizing: content-box;
+  padding: 128px 128px 360px;
+  text-align: center;
+}
+
+.pdf-stage .react-pdf__Document {
+  display: inline-block;
+  text-align: left;
 }
 
 .pdf-page-frame {
