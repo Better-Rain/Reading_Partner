@@ -112,11 +112,12 @@ Implemented:
 - Extract PDF text into page-level rows.
 - Split extracted text into paragraph-aware chunks.
 - Cache text indexes locally and skip repeat extraction after all pages are processed.
+- Search the active document locally from the right-side Search tab and jump to matched pages.
 
 Goals:
 
 - Extract PDF text into page and paragraph chunks.
-- Add SQLite FTS5 full-text search.
+- Upgrade keyword search to SQLite FTS5 full-text search.
 - Add embeddings and vector retrieval.
 - Ask questions across a document with page citations.
 

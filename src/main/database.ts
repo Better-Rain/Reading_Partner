@@ -12,6 +12,7 @@ import {
   CreateVocabularyInput,
   DictionaryEntryRecord,
   DictionarySourceRecord,
+  DocumentSearchResult,
   DocumentTextIndexResult,
   DocumentTextIndexStatus,
   DocumentRecord,
@@ -121,6 +122,14 @@ type DocumentTextIndexStatusRow = {
   indexed_at: string | null
 }
 
+type DocumentChunkRow = {
+  id: string
+  document_id: string
+  page_number: number
+  chunk_index: number
+  text: string
+}
+
 const toDocument = (row: DocumentRow): DocumentRecord => ({
   id: row.id,
   title: row.title,
@@ -201,6 +210,49 @@ const toDictionarySource = (row: DictionarySourceRow): DictionarySourceRecord =>
 })
 
 const normalizeDictionaryWord = (word: string): string => word.trim().toLocaleLowerCase()
+const normalizeSearchQuery = (query: string): string[] =>
+  Array.from(
+    new Set(
+      query
+        .trim()
+        .toLocaleLowerCase()
+        .split(/\s+/)
+        .map((term) => term.trim())
+        .filter((term) => term.length > 0)
+    )
+  ).slice(0, 8)
+
+const escapeLikeTerm = (term: string): string =>
+  term.replace(/[\\%_]/g, (match) => `\\${match}`)
+
+const countOccurrences = (text: string, term: string): number => {
+  let count = 0
+  let index = text.indexOf(term)
+
+  while (index !== -1) {
+    count += 1
+    index = text.indexOf(term, index + term.length)
+  }
+
+  return count
+}
+
+const createSearchSnippet = (text: string, terms: string[]): string => {
+  const compact = text.replace(/\s+/g, ' ').trim()
+  const lower = compact.toLocaleLowerCase()
+  const firstMatch = terms.reduce<number>((best, term) => {
+    const index = lower.indexOf(term)
+    return index === -1 ? best : Math.min(best, index)
+  }, Number.POSITIVE_INFINITY)
+
+  if (!Number.isFinite(firstMatch)) {
+    return compact.slice(0, 240)
+  }
+
+  const start = Math.max(0, firstMatch - 80)
+  const end = Math.min(compact.length, firstMatch + 220)
+  return `${start > 0 ? '...' : ''}${compact.slice(start, end)}${end < compact.length ? '...' : ''}`
+}
 
 export class ReadingPartnerDatabase {
   private constructor(
@@ -370,6 +422,46 @@ export class ReadingPartnerDatabase {
       ...this.getDocumentTextIndexStatus(input.documentId),
       skipped: false
     }
+  }
+
+  searchDocumentText(documentId: string, query: string, limit = 30): DocumentSearchResult[] {
+    this.getDocument(documentId)
+    const terms = normalizeSearchQuery(query)
+
+    if (terms.length === 0) {
+      return []
+    }
+
+    const whereTerms = terms.map(() => "lower(text) like ? escape '\\'").join(' and ')
+    const rows = this.query<DocumentChunkRow>(
+      `select id, document_id, page_number, chunk_index, text
+       from document_chunks
+       where document_id = ? and ${whereTerms}
+       order by page_number asc, chunk_index asc
+       limit ?`,
+      [
+        documentId,
+        ...terms.map((term) => `%${escapeLikeTerm(term)}%`),
+        Math.max(1, Math.min(limit * 4, 200))
+      ]
+    )
+
+    return rows
+      .map((row) => {
+        const lower = row.text.toLocaleLowerCase()
+        const score = terms.reduce((total, term) => total + countOccurrences(lower, term), 0)
+
+        return {
+          id: row.id,
+          documentId: row.document_id,
+          pageNumber: row.page_number,
+          chunkIndex: row.chunk_index,
+          snippet: createSearchSnippet(row.text, terms),
+          score
+        }
+      })
+      .sort((left, right) => right.score - left.score || left.pageNumber - right.pageNumber)
+      .slice(0, limit)
   }
 
   listAnnotations(documentId: string): AnnotationRecord[] {

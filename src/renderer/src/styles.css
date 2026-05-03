@@ -251,10 +251,18 @@ button:disabled {
 }
 
 .page-input input {
+  appearance: textfield;
   width: 48px;
   border: 0;
   outline: 0;
   text-align: center;
+}
+
+.page-input input::-webkit-inner-spin-button,
+.page-input input::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .reader-surface {
@@ -377,7 +385,7 @@ button:disabled {
 
 .tab-bar {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 6px;
   border-bottom: 1px solid #d9dee8;
   background: #fff;
@@ -410,7 +418,8 @@ button:disabled {
 }
 
 .note-composer,
-.vocab-composer {
+.vocab-composer,
+.search-form {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -419,7 +428,8 @@ button:disabled {
 
 .note-composer textarea,
 .vocab-composer textarea,
-.vocab-composer input {
+.vocab-composer input,
+.search-form input {
   width: 100%;
   border: 1px solid #d6deeb;
   border-radius: 8px;
@@ -441,7 +451,13 @@ button:disabled {
   padding: 0 10px;
 }
 
-.vocab-composer button {
+.search-form input {
+  height: 38px;
+  padding: 0 10px;
+}
+
+.vocab-composer button,
+.search-form button {
   display: inline-flex;
   min-height: 36px;
   align-items: center;
@@ -487,11 +503,48 @@ button:disabled {
 }
 
 .annotation-list,
+.search-result-list,
 .vocabulary-list,
 .provider-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.search-result {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid #dde3ed;
+  border-radius: 8px;
+  background: #fff;
+  color: #263447;
+  cursor: pointer;
+  padding: 12px;
+  text-align: left;
+}
+
+.search-result:hover {
+  border-color: #b7c8e4;
+  background: #f4f7fb;
+}
+
+.search-result-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.search-result-heading small {
+  color: #6d7787;
+  font-size: 12px;
+}
+
+.search-snippet {
+  color: #344256;
+  line-height: 1.6;
 }
 
 .annotation-item,

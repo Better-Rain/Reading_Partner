@@ -103,6 +103,10 @@ const registerIpc = (): void => {
     })
   })
 
+  ipcMain.handle('documents:searchText', (_event, documentId: string, query: string) =>
+    database.searchDocumentText(documentId, query)
+  )
+
   ipcMain.handle('annotations:list', (_event, documentId: string) =>
     database.listAnnotations(documentId)
   )

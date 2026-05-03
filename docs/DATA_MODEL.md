@@ -63,6 +63,11 @@ Search/RAG-ready page chunks derived from `document_pages`.
 | char_count | integer | Character count. |
 | indexed_at | text | ISO timestamp. |
 
+Current behavior:
+
+- The right-side Search tab queries these chunks locally with app-level keyword matching.
+- Search results return the source page, chunk id, snippet, and a simple occurrence score.
+
 ### ai_providers
 
 Provider configuration without raw API key material in the renderer.
@@ -118,7 +123,7 @@ Current behavior:
 
 ## Future Indexes
 
-- SQLite FTS5 or app-level keyword search over extracted PDF chunks.
+- SQLite FTS5 search over extracted PDF chunks.
 - Vector index over chunks through `sqlite-vec` or LanceDB.
 - Unique index for vocabulary words normalized by lowercase lemma.
 

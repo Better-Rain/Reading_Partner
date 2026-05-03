@@ -16,6 +16,8 @@ const api: ReadingPartnerApi = {
   getDocumentTextIndexStatus: (documentId: string) =>
     ipcRenderer.invoke('documents:textIndexStatus', documentId),
   indexDocumentText: (documentId: string) => ipcRenderer.invoke('documents:indexText', documentId),
+  searchDocumentText: (documentId: string, query: string) =>
+    ipcRenderer.invoke('documents:searchText', documentId, query),
   listAnnotations: (documentId: string) => ipcRenderer.invoke('annotations:list', documentId),
   createAnnotation: (input: CreateAnnotationInput) =>
     ipcRenderer.invoke('annotations:create', input),

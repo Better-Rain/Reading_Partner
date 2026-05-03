@@ -16,6 +16,7 @@ import {
   MessageSquarePlus,
   Minus,
   Plus,
+  Search,
   Settings,
   Sparkles,
   StickyNote,
@@ -27,6 +28,7 @@ import {
   AIPromptType,
   AIStreamEvent,
   AnnotationRecord,
+  DocumentSearchResult,
   DocumentRecord,
   OpenPdfResult,
   ProviderKeyStatus,
@@ -34,7 +36,7 @@ import {
   VocabularyRecord
 } from '../../shared/types'
 
-type PanelTab = 'notes' | 'ai' | 'vocab' | 'settings'
+type PanelTab = 'notes' | 'search' | 'ai' | 'vocab' | 'settings'
 
 type SelectionState = {
   text: string
@@ -121,6 +123,9 @@ function App(): JSX.Element {
   const [providers, setProviders] = useState<AIProviderRecord[]>([])
   const [keyStatus, setKeyStatus] = useState<ProviderKeyStatus[]>([])
   const [activeTab, setActiveTab] = useState<PanelTab>('notes')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<DocumentSearchResult[]>([])
+  const [isSearching, setIsSearching] = useState(false)
   const [selection, setSelection] = useState<SelectionState | null>(null)
   const [pageNumber, setPageNumber] = useState(1)
   const [pageCount, setPageCount] = useState(0)
@@ -249,6 +254,38 @@ function App(): JSX.Element {
     setVocabulary(list)
   }
 
+  const clearSearch = (): void => {
+    setSearchQuery('')
+    setSearchResults([])
+    setIsSearching(false)
+  }
+
+  const searchDocument = async (query = searchQuery): Promise<void> => {
+    if (!activeDocument) {
+      return
+    }
+
+    const trimmed = query.trim()
+
+    if (!trimmed) {
+      setSearchResults([])
+      return
+    }
+
+    setIsSearching(true)
+    setStatus(`正在搜索：${trimmed}`)
+
+    try {
+      const results = await window.readingPartner.searchDocumentText(activeDocument.id, trimmed)
+      setSearchResults(results)
+      setStatus(results.length > 0 ? `找到 ${results.length} 条结果` : `没有找到：${trimmed}`)
+    } catch (error) {
+      setStatus(`搜索失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setIsSearching(false)
+    }
+  }
+
   const ensureDocumentTextIndex = async (
     document: DocumentRecord,
     expectedPageCount: number
@@ -352,6 +389,7 @@ function App(): JSX.Element {
     })
     setPageNumber(1)
     setSelection(null)
+    clearSearch()
     await Promise.all([refreshAnnotations(document.id), refreshVocabulary(document.id)])
     setStatus(`已打开 ${document.title}`)
   }
@@ -374,6 +412,7 @@ function App(): JSX.Element {
     })
     setPageNumber(1)
     setSelection(null)
+    clearSearch()
     await Promise.all([
       refreshLibrary(),
       refreshAnnotations(result.document.id),
@@ -895,6 +934,10 @@ function App(): JSX.Element {
             <StickyNote size={16} />
             笔记
           </button>
+          <button className={activeTab === 'search' ? 'active' : ''} onClick={() => setActiveTab('search')}>
+            <Search size={16} />
+            搜索
+          </button>
           <button className={activeTab === 'ai' ? 'active' : ''} onClick={() => setActiveTab('ai')}>
             <Bot size={16} />
             AI
@@ -921,6 +964,21 @@ function App(): JSX.Element {
             onDelete={(id) => void deleteAnnotation(id)}
             onDraftNoteChange={setDraftNote}
             onSaveNote={() => void createAnnotation('note', draftNote || '空白页边注')}
+          />
+        )}
+
+        {activeTab === 'search' && (
+          <SearchPanel
+            hasDocument={Boolean(activeDocument)}
+            isSearching={isSearching}
+            query={searchQuery}
+            results={searchResults}
+            onJump={(result) => {
+              setPageNumber(result.pageNumber)
+              setStatus(`已跳转到第 ${result.pageNumber} 页`)
+            }}
+            onQueryChange={setSearchQuery}
+            onSearch={() => void searchDocument()}
           />
         )}
 
@@ -967,6 +1025,69 @@ type NotesPanelProps = {
   onDelete: (id: string) => void
   onDraftNoteChange: (value: string) => void
   onSaveNote: () => void
+}
+
+type SearchPanelProps = {
+  hasDocument: boolean
+  isSearching: boolean
+  query: string
+  results: DocumentSearchResult[]
+  onJump: (result: DocumentSearchResult) => void
+  onQueryChange: (value: string) => void
+  onSearch: () => void
+}
+
+function SearchPanel({
+  hasDocument,
+  isSearching,
+  query,
+  results,
+  onJump,
+  onQueryChange,
+  onSearch
+}: SearchPanelProps): JSX.Element {
+  const canSearch = hasDocument && query.trim().length > 0 && !isSearching
+
+  return (
+    <div className="inspector-content search-panel">
+      <form
+        className="search-form"
+        onSubmit={(event) => {
+          event.preventDefault()
+          onSearch()
+        }}
+      >
+        <input
+          disabled={!hasDocument}
+          placeholder="搜索当前文档"
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+        />
+        <button disabled={!canSearch} type="submit">
+          <Search size={16} />
+          {isSearching ? '搜索中' : '搜索'}
+        </button>
+      </form>
+
+      <div className="search-result-list">
+        {!hasDocument ? (
+          <p className="muted">打开 PDF 后可以搜索当前文档。</p>
+        ) : results.length === 0 ? (
+          <p className="muted">输入关键词后会显示匹配页码和文本片段。</p>
+        ) : (
+          results.map((result) => (
+            <button className="search-result" key={result.id} onClick={() => onJump(result)}>
+              <span className="search-result-heading">
+                <strong>第 {result.pageNumber} 页</strong>
+                <small>匹配度 {result.score}</small>
+              </span>
+              <span className="search-snippet">{result.snippet}</span>
+            </button>
+          ))
+        )}
+      </div>
+    </div>
+  )
 }
 
 function NotesPanel({

@@ -27,6 +27,15 @@ export type DocumentTextIndexResult = DocumentTextIndexStatus & {
   skipped: boolean
 }
 
+export type DocumentSearchResult = {
+  id: string
+  documentId: string
+  pageNumber: number
+  chunkIndex: number
+  snippet: string
+  score: number
+}
+
 export type AnnotationRecord = {
   id: string
   documentId: string
@@ -190,6 +199,7 @@ export type ReadingPartnerApi = {
   listDocuments: () => Promise<DocumentRecord[]>
   getDocumentTextIndexStatus: (documentId: string) => Promise<DocumentTextIndexStatus>
   indexDocumentText: (documentId: string) => Promise<DocumentTextIndexResult>
+  searchDocumentText: (documentId: string, query: string) => Promise<DocumentSearchResult[]>
   listAnnotations: (documentId: string) => Promise<AnnotationRecord[]>
   createAnnotation: (input: CreateAnnotationInput) => Promise<AnnotationRecord>
   deleteAnnotation: (id: string) => Promise<void>
