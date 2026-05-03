@@ -14,7 +14,7 @@ The first product milestone is a reliable PDF reading and annotation MVP. RAG, O
 | UI | React + TypeScript | Component model fits reader panels, floating tools, and stateful annotations. |
 | Build | Vite + electron-vite | Fast development loop and clear separation between main, preload, and renderer. |
 | PDF | `react-pdf` / PDF.js | Uses Mozilla PDF.js and provides text layer support for selection. |
-| Local database | SQLite via `better-sqlite3` | Local-first, simple backups, good enough for documents, annotations, notes, vocabulary, and FTS. |
+| Local database | SQLite via `sql.js` | Local-first persistence without Windows native build friction; suitable for documents, annotations, notes, vocabulary, and early search indexes. |
 | IPC | Electron `contextBridge` + typed channels | Renderer never gets Node access directly. |
 | AI | OpenAI-compatible provider adapter | DeepSeek, Alibaba Bailian/Qwen, Kimi, Zhipu, and custom providers can share one interface. |
 | Styling | Plain CSS first | The MVP needs precise layout and readable density before introducing a larger design system. |
@@ -28,6 +28,7 @@ Responsibilities:
 - Window lifecycle.
 - Native file dialogs.
 - Reading PDF files from disk.
+- Extracting PDF page text and search/RAG chunks.
 - SQLite database initialization and queries.
 - Secure AI key storage through Electron `safeStorage`.
 - AI provider requests, so API keys do not enter the renderer.
@@ -79,6 +80,16 @@ Later anchor:
 
 This keeps AI output auditable: answers should point back to page numbers and source passages.
 
+## Text Indexing
+
+PDF text extraction is owned by the main process. After a PDF loads successfully in the renderer, the renderer asks the main process to ensure a text index exists. The main process uses PDF.js to extract page text, writes `document_pages`, then splits page text into paragraph-aware `document_chunks`.
+
+Current behavior:
+
+- Indexing is cached per document and skipped when all pages have already been processed.
+- Scanned pages are still marked as indexed with empty page text, so the app does not repeatedly retry OCR-level work.
+- Chunks retain source page numbers, which is the minimum citation anchor for the upcoming document search and RAG flow.
+
 ## AI Design
 
 AI should be a reading assistant, not the database of record.
@@ -111,8 +122,8 @@ Current implementation:
 
 Planned implementation:
 
-- Import ECDICT into a local lookup table.
-- Use local dictionary lookup before spending model tokens.
+- Improve word normalization before dictionary lookup.
+- Export vocabulary to Markdown, CSV, or Anki-friendly formats.
 
 ## Security Notes
 

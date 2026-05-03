@@ -5,6 +5,7 @@ import { runOpenAICompatibleCompletion } from './ai'
 import { ReadingPartnerDatabase } from './database'
 import { parseDictionaryCsv } from './dictionaryImport'
 import { KeyStore } from './keyStore'
+import { extractPdfText } from './pdfText'
 import { resolveStarDictIfoPath, StarDictSource } from './stardict'
 import {
   AIStreamEvent,
@@ -73,6 +74,33 @@ const registerIpc = (): void => {
   ipcMain.handle('documents:readPdf', async (_event, documentId: string) => {
     const document = database.getDocument(documentId)
     return toArrayBuffer(await readFile(document.filePath))
+  })
+
+  ipcMain.handle('documents:textIndexStatus', (_event, documentId: string) =>
+    database.getDocumentTextIndexStatus(documentId)
+  )
+
+  ipcMain.handle('documents:indexText', async (_event, documentId: string) => {
+    const document = database.getDocument(documentId)
+    const currentStatus = database.getDocumentTextIndexStatus(documentId)
+
+    if (
+      currentStatus.pageCount &&
+      currentStatus.pagesIndexed >= currentStatus.pageCount
+    ) {
+      return {
+        ...currentStatus,
+        skipped: true
+      }
+    }
+
+    const extracted = await extractPdfText(document.filePath)
+    return database.replaceDocumentTextIndex({
+      documentId,
+      pageCount: extracted.pageCount,
+      pages: extracted.pages,
+      chunks: extracted.chunks
+    })
   })
 
   ipcMain.handle('annotations:list', (_event, documentId: string) =>

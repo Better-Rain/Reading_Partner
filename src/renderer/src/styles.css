@@ -52,6 +52,8 @@ button {
 
 .inspector-panel {
   border-left: 1px solid #d9dee8;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .brand {
@@ -401,8 +403,9 @@ button:disabled {
 }
 
 .inspector-content {
+  flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
   padding: 16px;
 }
 

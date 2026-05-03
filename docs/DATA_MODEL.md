@@ -35,6 +35,34 @@ Highlights, notes, and bookmarks.
 | created_at | text | ISO timestamp. |
 | updated_at | text | ISO timestamp. |
 
+### document_pages
+
+Extracted PDF page text cache. The main process rebuilds these rows from PDF.js when the document has no complete index.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| document_id | text | FK to documents. |
+| page_number | integer | 1-based page number. |
+| text | text | Full extracted text for the page. Empty for pages with no extractable text. |
+| char_count | integer | Character count for quick diagnostics. |
+| indexed_at | text | ISO timestamp. |
+
+Primary key: `(document_id, page_number)`.
+
+### document_chunks
+
+Search/RAG-ready page chunks derived from `document_pages`.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| id | text primary key | UUID. |
+| document_id | text | FK to documents. |
+| page_number | integer | Source page. |
+| chunk_index | integer | 0-based order within the page. |
+| text | text | Chunk text, currently paragraph-aware with a target max length around 1200 characters. |
+| char_count | integer | Character count. |
+| indexed_at | text | ISO timestamp. |
+
 ### ai_providers
 
 Provider configuration without raw API key material in the renderer.
@@ -86,11 +114,11 @@ Current behavior:
 
 - Vocabulary entries are document-scoped when added from an active PDF.
 - Selected text can be saved as `word`, with the selected passage also stored as `source_sentence`.
-- Definitions are currently user-entered or placeholder text. ECDICT import and AI-assisted definition refinement are planned next.
+- Definitions can come from user input, local dictionary lookup, or AI-assisted refinement.
 
 ## Future Indexes
 
-- SQLite FTS5 over extracted PDF chunks.
+- SQLite FTS5 or app-level keyword search over extracted PDF chunks.
 - Vector index over chunks through `sqlite-vec` or LanceDB.
 - Unique index for vocabulary words normalized by lowercase lemma.
 

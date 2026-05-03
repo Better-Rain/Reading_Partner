@@ -12,11 +12,14 @@ import {
   CreateVocabularyInput,
   DictionaryEntryRecord,
   DictionarySourceRecord,
+  DocumentTextIndexResult,
+  DocumentTextIndexStatus,
   DocumentRecord,
   UpdateVocabularyDefinitionInput,
   UpsertAIProviderInput,
   VocabularyRecord
 } from '../shared/types'
+import { ExtractedPdfChunk, ExtractedPdfPage } from './pdfText'
 
 const now = (): string => new Date().toISOString()
 const require = createRequire(import.meta.url)
@@ -109,6 +112,13 @@ type DictionarySourceRow = {
   path: string
   entry_count: number | null
   created_at: string
+}
+
+type DocumentTextIndexStatusRow = {
+  page_count: number | null
+  pages_indexed: number
+  chunks_indexed: number
+  indexed_at: string | null
 }
 
 const toDocument = (row: DocumentRow): DocumentRecord => ({
@@ -260,6 +270,106 @@ export class ReadingPartnerDatabase {
     this.persist()
 
     return this.getDocument(id)
+  }
+
+  getDocumentTextIndexStatus(documentId: string): DocumentTextIndexStatus {
+    const document = this.getDocument(documentId)
+    const row = this.get<DocumentTextIndexStatusRow>(
+      `select
+         d.page_count,
+         coalesce(p.pages_indexed, 0) as pages_indexed,
+         coalesce(c.chunks_indexed, 0) as chunks_indexed,
+         p.indexed_at as indexed_at
+       from documents d
+       left join (
+         select document_id, count(*) as pages_indexed, max(indexed_at) as indexed_at
+         from document_pages
+         group by document_id
+       ) p on p.document_id = d.id
+       left join (
+         select document_id, count(*) as chunks_indexed
+         from document_chunks
+         group by document_id
+       ) c on c.document_id = d.id
+       where d.id = ?
+       limit 1`,
+      [documentId]
+    )
+
+    return {
+      documentId,
+      pageCount: row?.page_count ?? document.pageCount,
+      pagesIndexed: row?.pages_indexed ?? 0,
+      chunksIndexed: row?.chunks_indexed ?? 0,
+      indexedAt: row?.indexed_at ?? null
+    }
+  }
+
+  replaceDocumentTextIndex(input: {
+    documentId: string
+    pageCount: number
+    pages: ExtractedPdfPage[]
+    chunks: ExtractedPdfChunk[]
+  }): DocumentTextIndexResult {
+    const timestamp = now()
+    const pageStatement = this.db.prepare(
+      `insert into document_pages (
+        document_id, page_number, text, char_count, indexed_at
+      ) values (?, ?, ?, ?, ?)`
+    )
+    const chunkStatement = this.db.prepare(
+      `insert into document_chunks (
+        id, document_id, page_number, chunk_index, text, char_count, indexed_at
+      ) values (?, ?, ?, ?, ?, ?, ?)`
+    )
+
+    this.db.run('begin transaction')
+
+    try {
+      this.db.run('update documents set page_count = ? where id = ?', [
+        input.pageCount,
+        input.documentId
+      ])
+      this.db.run('delete from document_chunks where document_id = ?', [input.documentId])
+      this.db.run('delete from document_pages where document_id = ?', [input.documentId])
+
+      for (const page of input.pages) {
+        pageStatement.run([
+          input.documentId,
+          page.pageNumber,
+          page.text,
+          page.text.length,
+          timestamp
+        ])
+      }
+
+      for (const chunk of input.chunks) {
+        chunkStatement.run([
+          randomUUID(),
+          input.documentId,
+          chunk.pageNumber,
+          chunk.chunkIndex,
+          chunk.text,
+          chunk.text.length,
+          timestamp
+        ])
+      }
+
+      this.db.run('commit')
+    } catch (error) {
+      this.db.run('rollback')
+      throw error
+    } finally {
+      pageStatement.free()
+      chunkStatement.free()
+    }
+
+    this.persist()
+
+    return {
+      ...this.getDocumentTextIndexStatus(input.documentId),
+      skipped: false
+    }
   }
 
   listAnnotations(documentId: string): AnnotationRecord[] {
@@ -646,6 +756,31 @@ export class ReadingPartnerDatabase {
 
       create index if not exists idx_annotations_document_page
         on annotations(document_id, page_number);
+
+      create table if not exists document_pages (
+        document_id text not null references documents(id) on delete cascade,
+        page_number integer not null,
+        text text not null,
+        char_count integer not null,
+        indexed_at text not null,
+        primary key(document_id, page_number)
+      );
+
+      create index if not exists idx_document_pages_document
+        on document_pages(document_id, page_number);
+
+      create table if not exists document_chunks (
+        id text primary key,
+        document_id text not null references documents(id) on delete cascade,
+        page_number integer not null,
+        chunk_index integer not null,
+        text text not null,
+        char_count integer not null,
+        indexed_at text not null
+      );
+
+      create index if not exists idx_document_chunks_document_page
+        on document_chunks(document_id, page_number, chunk_index);
 
       create table if not exists ai_providers (
         id text primary key,

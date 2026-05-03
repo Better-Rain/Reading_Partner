@@ -105,6 +105,14 @@ Remaining work:
 
 ## Phase 4: Search and RAG
 
+Status: in progress.
+
+Implemented:
+
+- Extract PDF text into page-level rows.
+- Split extracted text into paragraph-aware chunks.
+- Cache text indexes locally and skip repeat extraction after all pages are processed.
+
 Goals:
 
 - Extract PDF text into page and paragraph chunks.

@@ -249,6 +249,37 @@ function App(): JSX.Element {
     setVocabulary(list)
   }
 
+  const ensureDocumentTextIndex = async (
+    document: DocumentRecord,
+    expectedPageCount: number
+  ): Promise<void> => {
+    try {
+      const current = await window.readingPartner.getDocumentTextIndexStatus(document.id)
+
+      if (
+        current.pageCount === expectedPageCount &&
+        current.pagesIndexed >= expectedPageCount
+      ) {
+        setStatus(`共 ${expectedPageCount} 页，文本索引已就绪`)
+        return
+      }
+
+      setStatus(`共 ${expectedPageCount} 页，正在抽取文本索引...`)
+      const result = await window.readingPartner.indexDocumentText(document.id)
+      setActiveDocument((active) =>
+        active?.id === result.documentId ? { ...active, pageCount: result.pageCount } : active
+      )
+      await refreshLibrary()
+      setStatus(
+        result.skipped
+          ? `共 ${result.pageCount ?? expectedPageCount} 页，文本索引已就绪`
+          : `文本索引完成：${result.pagesIndexed} 页 / ${result.chunksIndexed} 个片段`
+      )
+    } catch (error) {
+      setStatus(`文本索引失败：${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
   const handleAIStreamEvent = async (event: AIStreamEvent): Promise<void> => {
     if (event.type === 'start') {
       setAiRun((current) =>
@@ -790,6 +821,9 @@ function App(): JSX.Element {
                   setPdfError(null)
                   setPageCount(numPages)
                   setStatus(`共 ${numPages} 页`)
+                  if (activeDocument) {
+                    void ensureDocumentTextIndex(activeDocument, numPages)
+                  }
                 }}
                 onSourceError={(error) => {
                   setPdfError(error.message)

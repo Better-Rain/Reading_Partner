@@ -13,6 +13,9 @@ const api: ReadingPartnerApi = {
   openPdfDialog: () => ipcRenderer.invoke('documents:openPdfDialog'),
   readPdf: (documentId: string) => ipcRenderer.invoke('documents:readPdf', documentId),
   listDocuments: () => ipcRenderer.invoke('documents:list'),
+  getDocumentTextIndexStatus: (documentId: string) =>
+    ipcRenderer.invoke('documents:textIndexStatus', documentId),
+  indexDocumentText: (documentId: string) => ipcRenderer.invoke('documents:indexText', documentId),
   listAnnotations: (documentId: string) => ipcRenderer.invoke('annotations:list', documentId),
   createAnnotation: (input: CreateAnnotationInput) =>
     ipcRenderer.invoke('annotations:create', input),

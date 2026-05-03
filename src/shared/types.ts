@@ -15,6 +15,18 @@ export type DocumentRecord = {
   lastOpenedAt: string
 }
 
+export type DocumentTextIndexStatus = {
+  documentId: string
+  pageCount: number | null
+  pagesIndexed: number
+  chunksIndexed: number
+  indexedAt: string | null
+}
+
+export type DocumentTextIndexResult = DocumentTextIndexStatus & {
+  skipped: boolean
+}
+
 export type AnnotationRecord = {
   id: string
   documentId: string
@@ -176,6 +188,8 @@ export type ReadingPartnerApi = {
   openPdfDialog: () => Promise<OpenPdfResult | null>
   readPdf: (documentId: string) => Promise<ArrayBuffer>
   listDocuments: () => Promise<DocumentRecord[]>
+  getDocumentTextIndexStatus: (documentId: string) => Promise<DocumentTextIndexStatus>
+  indexDocumentText: (documentId: string) => Promise<DocumentTextIndexResult>
   listAnnotations: (documentId: string) => Promise<AnnotationRecord[]>
   createAnnotation: (input: CreateAnnotationInput) => Promise<AnnotationRecord>
   deleteAnnotation: (id: string) => Promise<void>
