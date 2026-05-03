@@ -7,6 +7,7 @@ import {
   Bookmark,
   BookMarked,
   Bot,
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -18,6 +19,7 @@ import {
   Languages,
   MessageSquarePlus,
   Minus,
+  Pencil,
   Plus,
   Search,
   Send,
@@ -25,7 +27,8 @@ import {
   Sparkles,
   StickyNote,
   Trash2,
-  Upload
+  Upload,
+  X
 } from 'lucide-react'
 import {
   AIChatMessageRecord,
@@ -354,11 +357,12 @@ function AnnotationOverlay({
     <div className="pdf-annotation-layer" aria-hidden="true">
       {visualItems.flatMap(({ annotation, rects }) =>
         rects.map((rect, rectIndex) => {
+          const verticalInset = annotation.type === 'highlight' ? Math.min(3, rect.height * scale * 0.18) : 0
           const style: CSSProperties = {
             left: rect.left * scale,
-            top: rect.top * scale,
+            top: rect.top * scale + verticalInset,
             width: rect.width * scale,
-            height: rect.height * scale,
+            height: Math.max(2, rect.height * scale - verticalInset * 2),
             backgroundColor:
               annotation.type === 'highlight'
                 ? hexToRgba(annotation.color, 0.44)
@@ -425,6 +429,8 @@ function App(): JSX.Element {
   const [isPanMode, setIsPanMode] = useState(false)
   const [isPanning, setIsPanning] = useState(false)
   const [draftNote, setDraftNote] = useState('')
+  const [selectionNoteDraft, setSelectionNoteDraft] = useState('')
+  const [isSelectionNoteEditorOpen, setIsSelectionNoteEditorOpen] = useState(false)
   const [qaQuestion, setQaQuestion] = useState('')
   const [aiConversations, setAiConversations] = useState<AIConversationRecord[]>([])
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
@@ -743,6 +749,8 @@ function App(): JSX.Element {
     })
     setPageNumber(1)
     setSelection(null)
+    setSelectionNoteDraft('')
+    setIsSelectionNoteEditorOpen(false)
     clearSearch()
     setQaQuestion('')
     setChatDraft('')
@@ -790,6 +798,8 @@ function App(): JSX.Element {
 
     if (!text || text.length < 2 || !activeDocument) {
       setSelection(null)
+      setSelectionNoteDraft('')
+      setIsSelectionNoteEditorOpen(false)
       return
     }
 
@@ -828,6 +838,8 @@ function App(): JSX.Element {
       y: rect ? Math.max(96, rect.top - 12) : 120,
       rects
     })
+    setSelectionNoteDraft('')
+    setIsSelectionNoteEditorOpen(false)
   }
 
   const createAnnotation = async (
@@ -851,6 +863,8 @@ function App(): JSX.Element {
 
     setAnnotations((items) => [...items, created])
     setSelection(null)
+    setSelectionNoteDraft('')
+    setIsSelectionNoteEditorOpen(false)
     setDraftNote('')
     setStatus(type === 'bookmark' ? '已添加书签' : '已保存批注')
   }
@@ -1004,6 +1018,15 @@ function App(): JSX.Element {
   const deleteAnnotation = async (id: string): Promise<void> => {
     await window.readingPartner.deleteAnnotation(id)
     setAnnotations((items) => items.filter((item) => item.id !== id))
+  }
+
+  const updateAnnotationNote = async (id: string, note: string): Promise<void> => {
+    const updated = await window.readingPartner.updateAnnotation({
+      id,
+      note: note.trim() || null
+    })
+    setAnnotations((items) => items.map((item) => (item.id === id ? updated : item)))
+    setStatus('已更新批注')
   }
 
   const createVocabularyFromSelection = async (): Promise<void> => {
@@ -1399,7 +1422,7 @@ function App(): JSX.Element {
 
         {selection && (
           <div
-            className="selection-toolbar"
+            className={isSelectionNoteEditorOpen ? 'selection-toolbar has-note-editor' : 'selection-toolbar'}
             style={{
               left: selection.x,
               top: selection.y
@@ -1409,7 +1432,7 @@ function App(): JSX.Element {
               <Highlighter size={16} />
               高亮
             </button>
-            <button title="批注" onClick={() => void createAnnotation('note', draftNote || '待补充笔记')}>
+            <button title="批注" onClick={() => setIsSelectionNoteEditorOpen((value) => !value)}>
               <StickyNote size={16} />
               批注
             </button>
@@ -1425,6 +1448,37 @@ function App(): JSX.Element {
               <BookMarked size={16} />
               生词
             </button>
+            {isSelectionNoteEditorOpen && (
+              <div className="selection-note-editor">
+                <textarea
+                  autoFocus
+                  placeholder="写下这段原文的批注..."
+                  value={selectionNoteDraft}
+                  onChange={(event) => setSelectionNoteDraft(event.target.value)}
+                />
+                <div className="selection-note-actions">
+                  <button
+                    title="保存批注"
+                    onClick={() =>
+                      void createAnnotation('note', selectionNoteDraft.trim() || '待补充笔记')
+                    }
+                  >
+                    <Check size={15} />
+                    保存
+                  </button>
+                  <button
+                    title="取消"
+                    onClick={() => {
+                      setSelectionNoteDraft('')
+                      setIsSelectionNoteEditorOpen(false)
+                    }}
+                  >
+                    <X size={15} />
+                    取消
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
@@ -1469,6 +1523,7 @@ function App(): JSX.Element {
               setStatus(`已跳转到第 ${annotation.pageNumber} 页`)
             }}
             onSaveNote={() => void createAnnotation('note', draftNote || '空白页边注')}
+            onUpdateNote={(id, note) => void updateAnnotationNote(id, note)}
           />
         )}
 
@@ -1545,6 +1600,7 @@ type NotesPanelProps = {
   onDraftNoteChange: (value: string) => void
   onJump: (annotation: AnnotationRecord) => void
   onSaveNote: () => void
+  onUpdateNote: (id: string, note: string) => void
 }
 
 type SearchPanelProps = {
@@ -1618,9 +1674,12 @@ function NotesPanel({
   onDelete,
   onDraftNoteChange,
   onJump,
-  onSaveNote
+  onSaveNote,
+  onUpdateNote
 }: NotesPanelProps): JSX.Element {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set())
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingNote, setEditingNote] = useState('')
 
   const toggleExpanded = (id: string): void => {
     setExpandedIds((current) => {
@@ -1634,6 +1693,21 @@ function NotesPanel({
 
       return next
     })
+  }
+
+  const startEditing = (annotation: AnnotationRecord): void => {
+    setEditingId(annotation.id)
+    setEditingNote(annotation.note ?? '')
+  }
+
+  const cancelEditing = (): void => {
+    setEditingId(null)
+    setEditingNote('')
+  }
+
+  const saveEditing = (id: string): void => {
+    onUpdateNote(id, editingNote)
+    cancelEditing()
   }
 
   return (
@@ -1684,8 +1758,39 @@ function NotesPanel({
                 {expanded && (
                   <div className="annotation-detail">
                     {annotation.selectedText && <blockquote>{annotation.selectedText}</blockquote>}
-                    {annotation.note && <p>{annotation.note}</p>}
+                    {editingId === annotation.id ? (
+                      <textarea
+                        className="annotation-note-editor"
+                        placeholder="写下批注..."
+                        value={editingNote}
+                        onChange={(event) => setEditingNote(event.target.value)}
+                      />
+                    ) : annotation.note ? (
+                      <p>{annotation.note}</p>
+                    ) : (
+                      <p className="muted">还没有批注内容。</p>
+                    )}
                     <div className="annotation-actions">
+                      {editingId === annotation.id ? (
+                        <>
+                          <button
+                            className="text-button neutral"
+                            onClick={() => saveEditing(annotation.id)}
+                          >
+                            <Check size={14} />
+                            保存
+                          </button>
+                          <button className="text-button" onClick={cancelEditing}>
+                            <X size={14} />
+                            取消
+                          </button>
+                        </>
+                      ) : (
+                        <button className="text-button neutral" onClick={() => startEditing(annotation)}>
+                          <Pencil size={14} />
+                          编辑
+                        </button>
+                      )}
                       <button className="text-button neutral" onClick={() => onJump(annotation)}>
                         <FileText size={14} />
                         跳转

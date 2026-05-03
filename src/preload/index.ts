@@ -7,6 +7,7 @@ import {
   ReadingPartnerApi,
   RunAIChatInput,
   RunAIActionInput,
+  UpdateAnnotationInput,
   UpdateVocabularyDefinitionInput,
   UpsertAIProviderInput
 } from '../shared/types'
@@ -23,6 +24,8 @@ const api: ReadingPartnerApi = {
   listAnnotations: (documentId: string) => ipcRenderer.invoke('annotations:list', documentId),
   createAnnotation: (input: CreateAnnotationInput) =>
     ipcRenderer.invoke('annotations:create', input),
+  updateAnnotation: (input: UpdateAnnotationInput) =>
+    ipcRenderer.invoke('annotations:update', input),
   deleteAnnotation: (id: string) => ipcRenderer.invoke('annotations:delete', id),
   listVocabulary: (documentId?: string | null) => ipcRenderer.invoke('vocabulary:list', documentId),
   createVocabulary: (input: CreateVocabularyInput) =>

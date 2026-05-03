@@ -20,6 +20,7 @@ import {
   DocumentTextIndexResult,
   DocumentTextIndexStatus,
   DocumentRecord,
+  UpdateAnnotationInput,
   UpdateVocabularyDefinitionInput,
   UpsertAIProviderInput,
   VocabularyRecord
@@ -667,6 +668,35 @@ export class ReadingPartnerDatabase {
       throw new Error(`Annotation not found after insert: ${id}`)
     }
     return toAnnotation(row)
+  }
+
+  updateAnnotation(input: UpdateAnnotationInput): AnnotationRecord {
+    const row = this.get<AnnotationRow>('select * from annotations where id = ?', [input.id])
+
+    if (!row) {
+      throw new Error(`Annotation not found: ${input.id}`)
+    }
+
+    const timestamp = now()
+    this.db.run(
+      `update annotations
+         set note = ?, color = ?, updated_at = ?
+       where id = ?`,
+      [
+        input.note === undefined ? row.note : input.note,
+        input.color === undefined ? row.color : input.color,
+        timestamp,
+        input.id
+      ]
+    )
+    this.persist()
+
+    const updated = this.get<AnnotationRow>('select * from annotations where id = ?', [input.id])
+    if (!updated) {
+      throw new Error(`Annotation not found after update: ${input.id}`)
+    }
+
+    return toAnnotation(updated)
   }
 
   deleteAnnotation(id: string): void {

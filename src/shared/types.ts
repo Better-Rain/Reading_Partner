@@ -70,6 +70,12 @@ export type CreateAnnotationInput = {
   rectsJson?: string | null
 }
 
+export type UpdateAnnotationInput = {
+  id: string
+  note?: string | null
+  color?: string | null
+}
+
 export type AIProviderRecord = {
   id: string
   label: string
@@ -255,6 +261,7 @@ export type ReadingPartnerApi = {
   searchDocumentText: (documentId: string, query: string) => Promise<DocumentSearchResult[]>
   listAnnotations: (documentId: string) => Promise<AnnotationRecord[]>
   createAnnotation: (input: CreateAnnotationInput) => Promise<AnnotationRecord>
+  updateAnnotation: (input: UpdateAnnotationInput) => Promise<AnnotationRecord>
   deleteAnnotation: (id: string) => Promise<void>
   listVocabulary: (documentId?: string | null) => Promise<VocabularyRecord[]>
   createVocabulary: (input: CreateVocabularyInput) => Promise<VocabularyRecord>

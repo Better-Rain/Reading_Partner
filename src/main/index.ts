@@ -18,6 +18,7 @@ import {
   CreateVocabularyInput,
   RunAIChatInput,
   RunAIActionInput,
+  UpdateAnnotationInput,
   UpdateVocabularyDefinitionInput,
   UpsertAIProviderInput
 } from '../shared/types'
@@ -119,6 +120,10 @@ const registerIpc = (): void => {
 
   ipcMain.handle('annotations:create', (_event, input: CreateAnnotationInput) =>
     database.createAnnotation(input)
+  )
+
+  ipcMain.handle('annotations:update', (_event, input: UpdateAnnotationInput) =>
+    database.updateAnnotation(input)
   )
 
   ipcMain.handle('annotations:delete', (_event, id: string) => {

@@ -438,6 +438,7 @@ button:disabled {
   position: fixed;
   z-index: 20;
   display: flex;
+  align-items: center;
   transform: translate(-50%, -100%);
   gap: 4px;
   border: 1px solid #cad2df;
@@ -462,6 +463,50 @@ button:disabled {
 
 .selection-toolbar button:hover {
   background: rgba(255, 255, 255, 0.12);
+}
+
+.selection-note-editor {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  width: 280px;
+  transform: translateX(-50%);
+  border: 1px solid #cad2df;
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px;
+  box-shadow: 0 12px 28px rgba(16, 24, 39, 0.24);
+}
+
+.selection-note-editor textarea {
+  display: block;
+  width: 100%;
+  min-height: 92px;
+  resize: vertical;
+  border: 1px solid #d9dee8;
+  border-radius: 6px;
+  outline: none;
+  color: #1f2937;
+  line-height: 1.5;
+  padding: 8px;
+}
+
+.selection-note-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.selection-note-actions button {
+  min-height: 30px;
+  border: 1px solid #d9dee8;
+  background: #f8fafc;
+  color: #1f2937;
+}
+
+.selection-note-actions button:hover {
+  background: #eef4fb;
 }
 
 .tab-bar {
@@ -748,8 +793,28 @@ button:disabled {
   line-height: 1.55;
 }
 
+.annotation-note-editor {
+  display: block;
+  width: 100%;
+  min-height: 96px;
+  margin-top: 10px;
+  resize: vertical;
+  border: 1px solid #ccd7e6;
+  border-radius: 6px;
+  outline: none;
+  color: #273244;
+  line-height: 1.55;
+  padding: 9px;
+}
+
+.annotation-note-editor:focus {
+  border-color: #8fb3df;
+  box-shadow: 0 0 0 3px rgba(88, 138, 198, 0.16);
+}
+
 .annotation-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
