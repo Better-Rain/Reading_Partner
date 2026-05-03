@@ -61,6 +61,17 @@ type AnnotationRect = {
   height: number
 }
 
+type AnnotationColorPreset = {
+  label: string
+  value: string
+}
+
+type HoveredAnnotation = {
+  annotation: AnnotationRecord
+  x: number
+  y: number
+}
+
 type AIRunState = {
   requestId: string
   promptType: AIPromptType
@@ -99,6 +110,14 @@ const makeDefinitionFromDictionary = (entry: NonNullable<Awaited<ReturnType<type
 const minScale = 0.75
 const maxScale = 3
 const scaleStep = 0.12
+
+const annotationColorPresets: AnnotationColorPreset[] = [
+  { label: '黄色', value: '#f8d86a' },
+  { label: '绿色', value: '#9be38f' },
+  { label: '蓝色', value: '#7db7ff' },
+  { label: '粉色', value: '#ff9cc7' },
+  { label: '紫色', value: '#c5a3ff' }
+]
 
 const clampScale = (value: number): number =>
   Math.min(maxScale, Math.max(minScale, Number(value.toFixed(2))))
@@ -249,6 +268,17 @@ const makeConversationTitle = (message: string): string => {
   }
 
   return normalized.length > 24 ? `${normalized.slice(0, 24)}...` : normalized
+}
+
+const getAnnotationPreview = (annotation: AnnotationRecord): string =>
+  annotation.note?.trim() || annotation.selectedText?.trim() || '书签'
+
+const isEditableTarget = (target: EventTarget | null): boolean => {
+  if (!(target instanceof HTMLElement)) {
+    return false
+  }
+
+  return Boolean(target.closest('input, textarea, select, [contenteditable="true"]'))
 }
 
 const toPdfBlobUrl = (data: ArrayBuffer | Uint8Array): string => {
@@ -419,11 +449,24 @@ function AnnotationOverlay({
   annotations: AnnotationRecord[]
   scale: number
 }): JSX.Element {
+  const [hoveredAnnotation, setHoveredAnnotation] = useState<HoveredAnnotation | null>(null)
   const visualItems = annotations.map((annotation) => ({
     annotation,
     rects: parseAnnotationRects(annotation.rectsJson)
   }))
   const pageMarkers = visualItems.filter(({ annotation, rects }) => annotation.type === 'bookmark' || rects.length === 0)
+  const showTooltip = (annotation: AnnotationRecord, event: ReactMouseEvent): void => {
+    const layerRect = event.currentTarget
+      .closest('.pdf-annotation-layer')
+      ?.getBoundingClientRect()
+
+    setHoveredAnnotation({
+      annotation,
+      x: layerRect ? event.clientX - layerRect.left + 14 : 14,
+      y: layerRect ? event.clientY - layerRect.top + 14 : 14
+    })
+  }
+  const hideTooltip = (): void => setHoveredAnnotation(null)
 
   return (
     <div className="pdf-annotation-layer" aria-hidden="true">
@@ -446,6 +489,9 @@ function AnnotationOverlay({
             <span
               className={`pdf-annotation-rect is-${annotation.type}`}
               key={`${annotation.id}-${rectIndex}`}
+              onMouseEnter={(event) => showTooltip(annotation, event)}
+              onMouseMove={(event) => showTooltip(annotation, event)}
+              onMouseLeave={hideTooltip}
               style={style}
             />
           )
@@ -461,6 +507,9 @@ function AnnotationOverlay({
             <span
               className="pdf-annotation-pin is-note"
               key={`${annotation.id}-pin`}
+              onMouseEnter={(event) => showTooltip(annotation, event)}
+              onMouseMove={(event) => showTooltip(annotation, event)}
+              onMouseLeave={hideTooltip}
               style={{
                 left: (firstRect.left + firstRect.width) * scale + 6,
                 top: firstRect.top * scale
@@ -473,9 +522,34 @@ function AnnotationOverlay({
         <span
           className={`pdf-page-marker is-${annotation.type}`}
           key={`${annotation.id}-marker`}
-          style={{ top: 12 + index * 30 }}
+          onMouseEnter={(event) => showTooltip(annotation, event)}
+          onMouseMove={(event) => showTooltip(annotation, event)}
+          onMouseLeave={hideTooltip}
+          style={{
+            top: 12 + index * 30,
+            backgroundColor:
+              annotation.type === 'bookmark' ? undefined : annotation.color ?? undefined
+          }}
         />
       ))}
+      {hoveredAnnotation && (
+        <div
+          className="pdf-annotation-tooltip"
+          style={{
+            left: hoveredAnnotation.x,
+            top: hoveredAnnotation.y
+          }}
+        >
+          <strong>
+            {hoveredAnnotation.annotation.type === 'highlight'
+              ? '高亮'
+              : hoveredAnnotation.annotation.type === 'note'
+                ? '批注'
+                : '书签'}
+          </strong>
+          <p>{getAnnotationPreview(hoveredAnnotation.annotation)}</p>
+        </div>
+      )}
     </div>
   )
 }
@@ -500,6 +574,7 @@ function App(): JSX.Element {
   const [scale, setScale] = useState(1.08)
   const [isPanMode, setIsPanMode] = useState(false)
   const [isPanning, setIsPanning] = useState(false)
+  const [selectedAnnotationColor, setSelectedAnnotationColor] = useState(annotationColorPresets[0].value)
   const [draftNote, setDraftNote] = useState('')
   const [selectionNoteDraft, setSelectionNoteDraft] = useState('')
   const [isSelectionNoteEditorOpen, setIsSelectionNoteEditorOpen] = useState(false)
@@ -954,7 +1029,7 @@ function App(): JSX.Element {
   const createAnnotation = async (
     type: AnnotationRecord['type'],
     note?: string,
-    color = type === 'note' ? '#6aa7f8' : '#f8d86a'
+    color = selectedAnnotationColor
   ): Promise<void> => {
     if (!activeDocument) {
       return
@@ -977,6 +1052,41 @@ function App(): JSX.Element {
     setDraftNote('')
     setStatus(type === 'bookmark' ? '已添加书签' : '已保存批注')
   }
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent): void => {
+      if (event.ctrlKey || event.metaKey || event.altKey || isEditableTarget(event.target)) {
+        return
+      }
+
+      const key = event.key.toLowerCase()
+
+      if (key === 'd') {
+        event.preventDefault()
+        setIsPanMode((value) => !value)
+        return
+      }
+
+      if (!activeDocument || !selection) {
+        return
+      }
+
+      if (key === 'h') {
+        event.preventDefault()
+        void createAnnotation('highlight')
+      }
+
+      if (key === 'n') {
+        event.preventDefault()
+        setIsSelectionNoteEditorOpen(true)
+      }
+    }
+
+    window.addEventListener('keydown', handleShortcut)
+    return () => {
+      window.removeEventListener('keydown', handleShortcut)
+    }
+  }, [activeDocument, selection, selectedAnnotationColor])
 
   const runAIAction = async (promptType: AIPromptType, text = selection?.text): Promise<void> => {
     if (!activeDocument || !text) {
@@ -1132,10 +1242,11 @@ function App(): JSX.Element {
     setAnnotations((items) => items.filter((item) => item.id !== id))
   }
 
-  const updateAnnotationNote = async (id: string, note: string): Promise<void> => {
+  const updateAnnotation = async (id: string, note: string, color?: string | null): Promise<void> => {
     const updated = await window.readingPartner.updateAnnotation({
       id,
-      note: note.trim() || null
+      note: note.trim() || null,
+      color
     })
     setAnnotations((items) => items.map((item) => (item.id === id ? updated : item)))
     setStatus('已更新批注')
@@ -1387,6 +1498,18 @@ function App(): JSX.Element {
             <span>{status}</span>
           </div>
           <div className="toolbar-controls">
+            <div className="reader-color-palette" aria-label="批注颜色">
+              {annotationColorPresets.map((preset) => (
+                <button
+                  className={selectedAnnotationColor === preset.value ? 'color-swatch active' : 'color-swatch'}
+                  disabled={!activeDocument}
+                  key={preset.value}
+                  onClick={() => setSelectedAnnotationColor(preset.value)}
+                  style={{ backgroundColor: preset.value }}
+                  title={`批注颜色：${preset.label}`}
+                />
+              ))}
+            </div>
             <button
               className="icon-button"
               disabled={!activeDocument || pageNumber <= 1}
@@ -1438,7 +1561,7 @@ function App(): JSX.Element {
             <button
               className={isPanMode ? 'icon-button active' : 'icon-button'}
               disabled={!activeDocument}
-              title="手型拖动"
+              title="手型拖动 (D)"
               onClick={() => setIsPanMode((value) => !value)}
             >
               <Hand size={18} />
@@ -1540,11 +1663,11 @@ function App(): JSX.Element {
               top: selection.y
             }}
           >
-            <button title="高亮" onClick={() => void createAnnotation('highlight')}>
+            <button title="高亮 (H)" onClick={() => void createAnnotation('highlight')}>
               <Highlighter size={16} />
               高亮
             </button>
-            <button title="批注" onClick={() => setIsSelectionNoteEditorOpen((value) => !value)}>
+            <button title="批注 (N)" onClick={() => setIsSelectionNoteEditorOpen((value) => !value)}>
               <StickyNote size={16} />
               批注
             </button>
@@ -1625,6 +1748,7 @@ function App(): JSX.Element {
         {activeTab === 'notes' && (
           <NotesPanel
             annotations={annotations}
+            colorPresets={annotationColorPresets}
             draftNote={draftNote}
             hasDocument={Boolean(activeDocument)}
             onBookmark={() => void createAnnotation('bookmark')}
@@ -1635,7 +1759,7 @@ function App(): JSX.Element {
               setStatus(`已跳转到第 ${annotation.pageNumber} 页`)
             }}
             onSaveNote={() => void createAnnotation('note', draftNote || '空白页边注')}
-            onUpdateNote={(id, note) => void updateAnnotationNote(id, note)}
+            onUpdateAnnotation={(id, note, color) => void updateAnnotation(id, note, color)}
           />
         )}
 
@@ -1710,6 +1834,7 @@ function App(): JSX.Element {
 
 type NotesPanelProps = {
   annotations: AnnotationRecord[]
+  colorPresets: AnnotationColorPreset[]
   draftNote: string
   hasDocument: boolean
   onBookmark: () => void
@@ -1717,7 +1842,7 @@ type NotesPanelProps = {
   onDraftNoteChange: (value: string) => void
   onJump: (annotation: AnnotationRecord) => void
   onSaveNote: () => void
-  onUpdateNote: (id: string, note: string) => void
+  onUpdateAnnotation: (id: string, note: string, color: string | null) => void
 }
 
 type SearchPanelProps = {
@@ -1785,6 +1910,7 @@ function SearchPanel({
 
 function NotesPanel({
   annotations,
+  colorPresets,
   draftNote,
   hasDocument,
   onBookmark,
@@ -1792,11 +1918,12 @@ function NotesPanel({
   onDraftNoteChange,
   onJump,
   onSaveNote,
-  onUpdateNote
+  onUpdateAnnotation
 }: NotesPanelProps): JSX.Element {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set())
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingNote, setEditingNote] = useState('')
+  const [editingColor, setEditingColor] = useState(colorPresets[0]?.value ?? '#f8d86a')
 
   const toggleExpanded = (id: string): void => {
     setExpandedIds((current) => {
@@ -1815,15 +1942,21 @@ function NotesPanel({
   const startEditing = (annotation: AnnotationRecord): void => {
     setEditingId(annotation.id)
     setEditingNote(annotation.note ?? '')
+    setEditingColor(annotation.color ?? colorPresets[0]?.value ?? '#f8d86a')
   }
 
   const cancelEditing = (): void => {
     setEditingId(null)
     setEditingNote('')
+    setEditingColor(colorPresets[0]?.value ?? '#f8d86a')
   }
 
-  const saveEditing = (id: string): void => {
-    onUpdateNote(id, editingNote)
+  const saveEditing = (annotation: AnnotationRecord): void => {
+    onUpdateAnnotation(
+      annotation.id,
+      editingNote,
+      annotation.type === 'bookmark' ? annotation.color : editingColor
+    )
     cancelEditing()
   }
 
@@ -1854,7 +1987,7 @@ function NotesPanel({
         ) : (
           annotations.map((annotation) => {
             const expanded = expandedIds.has(annotation.id)
-            const preview = annotation.note ?? annotation.selectedText ?? '书签'
+            const preview = getAnnotationPreview(annotation)
 
             return (
               <article className="annotation-item" key={annotation.id}>
@@ -1863,7 +1996,15 @@ function NotesPanel({
                   onClick={() => toggleExpanded(annotation.id)}
                 >
                   <span className="annotation-summary-main">
-                    <strong>{annotation.type}</strong>
+                    <strong>
+                      {annotation.color && (
+                        <span
+                          className="annotation-color-dot"
+                          style={{ backgroundColor: annotation.color }}
+                        />
+                      )}
+                      {annotation.type}
+                    </strong>
                     <span>{preview}</span>
                   </span>
                   <span className="annotation-summary-meta">
@@ -1876,12 +2017,28 @@ function NotesPanel({
                   <div className="annotation-detail">
                     {annotation.selectedText && <blockquote>{annotation.selectedText}</blockquote>}
                     {editingId === annotation.id ? (
-                      <textarea
-                        className="annotation-note-editor"
-                        placeholder="写下批注..."
-                        value={editingNote}
-                        onChange={(event) => setEditingNote(event.target.value)}
-                      />
+                      <>
+                        <textarea
+                          className="annotation-note-editor"
+                          placeholder="写下批注..."
+                          value={editingNote}
+                          onChange={(event) => setEditingNote(event.target.value)}
+                        />
+                        {annotation.type !== 'bookmark' && (
+                          <div className="annotation-color-editor">
+                            <span>颜色</span>
+                            {colorPresets.map((preset) => (
+                              <button
+                                className={editingColor === preset.value ? 'color-swatch active' : 'color-swatch'}
+                                key={preset.value}
+                                onClick={() => setEditingColor(preset.value)}
+                                style={{ backgroundColor: preset.value }}
+                                title={preset.label}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </>
                     ) : annotation.note ? (
                       <p>{annotation.note}</p>
                     ) : (
@@ -1892,7 +2049,7 @@ function NotesPanel({
                         <>
                           <button
                             className="text-button neutral"
-                            onClick={() => saveEditing(annotation.id)}
+                            onClick={() => saveEditing(annotation)}
                           >
                             <Check size={14} />
                             保存

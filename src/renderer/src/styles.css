@@ -217,6 +217,33 @@ button {
   gap: 8px;
 }
 
+.reader-color-palette {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid #d9dee8;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 5px;
+}
+
+.color-swatch {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(31, 41, 55, 0.22);
+  border-radius: 999px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.color-swatch.active {
+  border-color: #1f2937;
+  box-shadow:
+    0 0 0 2px #fff,
+    0 0 0 4px rgba(31, 41, 55, 0.26);
+}
+
 .icon-button {
   display: grid;
   width: 34px;
@@ -345,7 +372,9 @@ button:disabled {
   box-sizing: border-box;
   border: 1px solid transparent;
   border-radius: 2px;
+  cursor: help;
   mix-blend-mode: multiply;
+  pointer-events: auto;
 }
 
 .pdf-annotation-rect.is-highlight {
@@ -365,6 +394,8 @@ button:disabled {
   border: 1px solid rgba(63, 127, 200, 0.78);
   border-radius: 2px;
   background: #e5f0ff;
+  cursor: help;
+  pointer-events: auto;
   box-shadow: 0 1px 4px rgba(33, 75, 124, 0.22);
 }
 
@@ -375,6 +406,8 @@ button:disabled {
   height: 24px;
   border: 1px solid rgba(96, 104, 116, 0.2);
   border-radius: 4px 4px 4px 0;
+  cursor: help;
+  pointer-events: auto;
   box-shadow: 0 2px 8px rgba(22, 34, 51, 0.18);
 }
 
@@ -399,6 +432,37 @@ button:disabled {
 
 .pdf-page-marker.is-highlight {
   background: #f8d86a;
+}
+
+.pdf-annotation-tooltip {
+  position: absolute;
+  z-index: 8;
+  width: min(280px, 44vw);
+  transform: translateY(-4px);
+  border: 1px solid rgba(22, 34, 51, 0.16);
+  border-radius: 8px;
+  background: #fff;
+  color: #243044;
+  padding: 10px 12px;
+  pointer-events: none;
+  box-shadow: 0 14px 32px rgba(22, 34, 51, 0.22);
+}
+
+.pdf-annotation-tooltip strong {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 13px;
+}
+
+.pdf-annotation-tooltip p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 8;
+  color: #344256;
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .empty-state {
@@ -753,9 +817,21 @@ button:disabled {
 }
 
 .annotation-summary-main strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: #1f2937;
   font-size: 13px;
   text-transform: uppercase;
+}
+
+.annotation-color-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(31, 41, 55, 0.18);
+  border-radius: 999px;
 }
 
 .annotation-summary-main span {
@@ -810,6 +886,20 @@ button:disabled {
 .annotation-note-editor:focus {
   border-color: #8fb3df;
   box-shadow: 0 0 0 3px rgba(88, 138, 198, 0.16);
+}
+
+.annotation-color-editor {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  color: #536173;
+  font-size: 13px;
+}
+
+.annotation-color-editor .color-swatch {
+  width: 20px;
+  height: 20px;
 }
 
 .annotation-actions {
