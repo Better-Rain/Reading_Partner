@@ -317,16 +317,88 @@ button:disabled {
 }
 
 .pdf-page-frame {
+  position: relative;
   margin: 0 auto;
   min-height: 72vh;
   border-radius: 6px;
   background: #fff;
   box-shadow: 0 14px 36px rgba(22, 34, 51, 0.18);
+  overflow: visible;
 }
 
 .react-pdf__Page {
+  position: relative;
   border-radius: 6px;
   overflow: hidden;
+}
+
+.pdf-annotation-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.pdf-annotation-rect {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  mix-blend-mode: multiply;
+}
+
+.pdf-annotation-rect.is-highlight {
+  box-shadow: inset 0 -1px 0 rgba(105, 80, 0, 0.18);
+}
+
+.pdf-annotation-rect.is-note {
+  border-left-width: 3px;
+  box-shadow: inset 0 -2px 0 rgba(30, 92, 148, 0.2);
+}
+
+.pdf-annotation-pin {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  transform: translateY(2px) rotate(45deg);
+  border: 1px solid rgba(63, 127, 200, 0.78);
+  border-radius: 2px;
+  background: #e5f0ff;
+  box-shadow: 0 1px 4px rgba(33, 75, 124, 0.22);
+}
+
+.pdf-page-marker {
+  position: absolute;
+  right: -13px;
+  width: 22px;
+  height: 24px;
+  border: 1px solid rgba(96, 104, 116, 0.2);
+  border-radius: 4px 4px 4px 0;
+  box-shadow: 0 2px 8px rgba(22, 34, 51, 0.18);
+}
+
+.pdf-page-marker.is-bookmark {
+  background: #da5b5b;
+}
+
+.pdf-page-marker.is-bookmark::after {
+  position: absolute;
+  right: 4px;
+  bottom: -1px;
+  left: 4px;
+  height: 9px;
+  transform: translateY(50%) rotate(45deg);
+  background: #fff;
+  content: "";
+}
+
+.pdf-page-marker.is-note {
+  background: #6aa7f8;
+}
+
+.pdf-page-marker.is-highlight {
+  background: #f8d86a;
 }
 
 .empty-state {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import type { MouseEvent as ReactMouseEvent, WheelEvent } from 'react'
 import type { Source } from 'react-pdf/dist/shared/types.js'
 import { Document, Page } from 'react-pdf'
@@ -48,6 +48,14 @@ type SelectionState = {
   text: string
   x: number
   y: number
+  rects: AnnotationRect[]
+}
+
+type AnnotationRect = {
+  left: number
+  top: number
+  width: number
+  height: number
 }
 
 type AIRunState = {
@@ -91,6 +99,66 @@ const scaleStep = 0.12
 
 const clampScale = (value: number): number =>
   Math.min(maxScale, Math.max(minScale, Number(value.toFixed(2))))
+
+const roundRectValue = (value: number): number => Number(value.toFixed(2))
+
+const parseAnnotationRects = (rectsJson: string | null): AnnotationRect[] => {
+  if (!rectsJson) {
+    return []
+  }
+
+  try {
+    const parsed = JSON.parse(rectsJson) as unknown
+
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+
+    return parsed
+      .map((item) => {
+        if (!item || typeof item !== 'object') {
+          return null
+        }
+
+        const rect = item as Partial<Record<keyof AnnotationRect, unknown>>
+        const left = Number(rect.left)
+        const top = Number(rect.top)
+        const width = Number(rect.width)
+        const height = Number(rect.height)
+
+        if (![left, top, width, height].every(Number.isFinite) || width <= 0 || height <= 0) {
+          return null
+        }
+
+        return { left, top, width, height }
+      })
+      .filter((item): item is AnnotationRect => Boolean(item))
+  } catch {
+    return []
+  }
+}
+
+const hexToRgba = (value: string | null | undefined, alpha: number): string => {
+  const color = value?.trim() || '#f8d86a'
+  const normalized = color.startsWith('#') ? color.slice(1) : color
+  const expanded =
+    normalized.length === 3
+      ? normalized
+          .split('')
+          .map((part) => `${part}${part}`)
+          .join('')
+      : normalized
+
+  if (!/^[0-9a-fA-F]{6}$/.test(expanded)) {
+    return `rgba(248, 216, 106, ${alpha})`
+  }
+
+  const red = Number.parseInt(expanded.slice(0, 2), 16)
+  const green = Number.parseInt(expanded.slice(2, 4), 16)
+  const blue = Number.parseInt(expanded.slice(4, 6), 16)
+
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
+}
 
 const formatBytes = (bytes: number): string => {
   if (bytes < 1024 * 1024) {
@@ -267,6 +335,73 @@ function MarkdownContent({ text }: { text: string }): JSX.Element {
   }
 
   return <div className="markdown-content">{blocks}</div>
+}
+
+function AnnotationOverlay({
+  annotations,
+  scale
+}: {
+  annotations: AnnotationRecord[]
+  scale: number
+}): JSX.Element {
+  const visualItems = annotations.map((annotation) => ({
+    annotation,
+    rects: parseAnnotationRects(annotation.rectsJson)
+  }))
+  const pageMarkers = visualItems.filter(({ annotation, rects }) => annotation.type === 'bookmark' || rects.length === 0)
+
+  return (
+    <div className="pdf-annotation-layer" aria-hidden="true">
+      {visualItems.flatMap(({ annotation, rects }) =>
+        rects.map((rect, rectIndex) => {
+          const style: CSSProperties = {
+            left: rect.left * scale,
+            top: rect.top * scale,
+            width: rect.width * scale,
+            height: rect.height * scale,
+            backgroundColor:
+              annotation.type === 'highlight'
+                ? hexToRgba(annotation.color, 0.44)
+                : hexToRgba(annotation.color ?? '#6aa7f8', 0.24),
+            borderColor: annotation.color ?? (annotation.type === 'note' ? '#3f7fc8' : '#d6ad22')
+          }
+
+          return (
+            <span
+              className={`pdf-annotation-rect is-${annotation.type}`}
+              key={`${annotation.id}-${rectIndex}`}
+              style={style}
+            />
+          )
+        })
+      )}
+
+      {visualItems
+        .filter(({ annotation, rects }) => annotation.type === 'note' && rects.length > 0)
+        .map(({ annotation, rects }) => {
+          const firstRect = rects[0]
+
+          return (
+            <span
+              className="pdf-annotation-pin is-note"
+              key={`${annotation.id}-pin`}
+              style={{
+                left: (firstRect.left + firstRect.width) * scale + 6,
+                top: firstRect.top * scale
+              }}
+            />
+          )
+        })}
+
+      {pageMarkers.map(({ annotation }, index) => (
+        <span
+          className={`pdf-page-marker is-${annotation.type}`}
+          key={`${annotation.id}-marker`}
+          style={{ top: 12 + index * 30 }}
+        />
+      ))}
+    </div>
+  )
 }
 
 function App(): JSX.Element {
@@ -660,18 +795,45 @@ function App(): JSX.Element {
 
     const range = selected?.rangeCount ? selected.getRangeAt(0) : null
     const rect = range?.getBoundingClientRect()
+    const pageElement = readerSurfaceRef.current?.querySelector<HTMLElement>('.react-pdf__Page')
+    const pageRect = pageElement?.getBoundingClientRect()
+    const rects =
+      range && pageRect
+        ? Array.from(range.getClientRects())
+            .map((item) => {
+              const left = Math.max(item.left, pageRect.left)
+              const top = Math.max(item.top, pageRect.top)
+              const right = Math.min(item.right, pageRect.right)
+              const bottom = Math.min(item.bottom, pageRect.bottom)
+              const width = right - left
+              const height = bottom - top
+
+              if (width <= 1 || height <= 1) {
+                return null
+              }
+
+              return {
+                left: roundRectValue((left - pageRect.left) / scale),
+                top: roundRectValue((top - pageRect.top) / scale),
+                width: roundRectValue(width / scale),
+                height: roundRectValue(height / scale)
+              }
+            })
+            .filter((item): item is AnnotationRect => Boolean(item))
+        : []
 
     setSelection({
       text,
       x: rect ? rect.left + rect.width / 2 : window.innerWidth / 2,
-      y: rect ? Math.max(96, rect.top - 12) : 120
+      y: rect ? Math.max(96, rect.top - 12) : 120,
+      rects
     })
   }
 
   const createAnnotation = async (
     type: AnnotationRecord['type'],
     note?: string,
-    color = '#f8d86a'
+    color = type === 'note' ? '#6aa7f8' : '#f8d86a'
   ): Promise<void> => {
     if (!activeDocument) {
       return
@@ -683,7 +845,8 @@ function App(): JSX.Element {
       pageNumber,
       selectedText: selection?.text ?? null,
       color: type === 'bookmark' ? null : color,
-      note: note ?? null
+      note: note ?? null,
+      rectsJson: type !== 'bookmark' && selection?.rects.length ? JSON.stringify(selection.rects) : null
     })
 
     setAnnotations((items) => [...items, created])
@@ -1217,6 +1380,7 @@ function App(): JSX.Element {
                       setStatus(`PDF 页面渲染失败：${error.message}`)
                     }}
                   />
+                  <AnnotationOverlay annotations={currentPageAnnotations} scale={scale} />
                 </div>
               </Document>
             </div>
