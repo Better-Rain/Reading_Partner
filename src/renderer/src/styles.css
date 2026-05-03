@@ -301,6 +301,14 @@ button:disabled {
   line-height: 1.7;
 }
 
+.empty-state.error-state {
+  color: #8c3440;
+}
+
+.empty-state.error-state p {
+  color: #8c3440;
+}
+
 .selection-toolbar {
   position: fixed;
   z-index: 20;

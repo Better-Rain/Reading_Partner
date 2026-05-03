@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import type { Source } from 'react-pdf/dist/shared/types.js'
 import { Document, Page } from 'react-pdf'
 import {
   Bookmark,
@@ -69,12 +70,17 @@ const formatTime = (iso: string): string =>
     minute: '2-digit'
   }).format(new Date(iso))
 
-const decodePdfData = (data: ArrayBuffer): Uint8Array => new Uint8Array(data)
+const toPdfBlobUrl = (data: ArrayBuffer | Uint8Array): string => {
+  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data)
+  const stableCopy = bytes.slice()
+  return URL.createObjectURL(new Blob([stableCopy], { type: 'application/pdf' }))
+}
 
 function App(): JSX.Element {
   const [documents, setDocuments] = useState<DocumentRecord[]>([])
   const [activeDocument, setActiveDocument] = useState<DocumentRecord | null>(null)
-  const [pdfData, setPdfData] = useState<Uint8Array | null>(null)
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  const [pdfError, setPdfError] = useState<string | null>(null)
   const [annotations, setAnnotations] = useState<AnnotationRecord[]>([])
   const [providers, setProviders] = useState<AIProviderRecord[]>([])
   const [keyStatus, setKeyStatus] = useState<ProviderKeyStatus[]>([])
@@ -92,6 +98,8 @@ function App(): JSX.Element {
     [annotations, pageNumber]
   )
 
+  const pdfFile = useMemo<Source | null>(() => (pdfUrl ? { url: pdfUrl } : null), [pdfUrl])
+
   const configuredProviderIds = useMemo(
     () => new Set(keyStatus.filter((item) => item.configured).map((item) => item.providerId)),
     [keyStatus]
@@ -106,6 +114,14 @@ function App(): JSX.Element {
     void refreshLibrary()
     void refreshProviders()
   }, [])
+
+  useEffect(() => {
+    return () => {
+      if (pdfUrl) {
+        URL.revokeObjectURL(pdfUrl)
+      }
+    }
+  }, [pdfUrl])
 
   useEffect(() => {
     return window.readingPartner.onAIStreamEvent((event) => {
@@ -181,9 +197,16 @@ function App(): JSX.Element {
 
   const loadDocument = async (document: DocumentRecord): Promise<void> => {
     setStatus(`正在打开 ${document.title}`)
+    setPdfError(null)
     const data = await window.readingPartner.readPdf(document.id)
+    const nextUrl = toPdfBlobUrl(data)
     setActiveDocument(document)
-    setPdfData(decodePdfData(data))
+    setPdfUrl((currentUrl) => {
+      if (currentUrl) {
+        URL.revokeObjectURL(currentUrl)
+      }
+      return nextUrl
+    })
     setPageNumber(1)
     setSelection(null)
     await refreshAnnotations(document.id)
@@ -197,8 +220,15 @@ function App(): JSX.Element {
       return
     }
 
+    const nextUrl = toPdfBlobUrl(result.data)
+    setPdfError(null)
     setActiveDocument(result.document)
-    setPdfData(decodePdfData(result.data))
+    setPdfUrl((currentUrl) => {
+      if (currentUrl) {
+        URL.revokeObjectURL(currentUrl)
+      }
+      return nextUrl
+    })
     setPageNumber(1)
     setSelection(null)
     await Promise.all([refreshLibrary(), refreshAnnotations(result.document.id)])
@@ -430,13 +460,29 @@ function App(): JSX.Element {
         </header>
 
         <div className="reader-surface" onMouseUp={captureSelection}>
-          {pdfData ? (
+          {pdfFile ? (
             <Document
-              file={{ data: pdfData }}
+              file={pdfFile}
+              error={
+                <div className="empty-state error-state">
+                  <FileText size={44} />
+                  <h2>PDF 打开失败</h2>
+                  <p>{pdfError ?? 'PDF.js 无法加载这个文件。'}</p>
+                </div>
+              }
               loading={<div className="empty-state">正在解析 PDF...</div>}
+              onLoadError={(error) => {
+                setPdfError(error.message)
+                setStatus(`PDF 打开失败：${error.message}`)
+              }}
               onLoadSuccess={({ numPages }) => {
+                setPdfError(null)
                 setPageCount(numPages)
                 setStatus(`共 ${numPages} 页`)
+              }}
+              onSourceError={(error) => {
+                setPdfError(error.message)
+                setStatus(`PDF 来源读取失败：${error.message}`)
               }}
             >
               <div className="pdf-page-frame">
@@ -445,6 +491,10 @@ function App(): JSX.Element {
                   renderAnnotationLayer
                   renderTextLayer
                   scale={scale}
+                  onLoadError={(error) => {
+                    setPdfError(error.message)
+                    setStatus(`PDF 页面渲染失败：${error.message}`)
+                  }}
                 />
               </div>
             </Document>
@@ -744,4 +794,3 @@ function SettingsPanel({
 }
 
 export default App
-
