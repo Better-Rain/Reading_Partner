@@ -293,6 +293,7 @@ function App(): JSX.Element {
   const [qaQuestion, setQaQuestion] = useState('')
   const [aiConversations, setAiConversations] = useState<AIConversationRecord[]>([])
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
+  const [isChatDrawerOpen, setIsChatDrawerOpen] = useState(false)
   const [chatMessages, setChatMessages] = useState<AIChatMessageRecord[]>([])
   const [chatDraft, setChatDraft] = useState('')
   const [status, setStatus] = useState('打开一本 PDF 开始阅读')
@@ -441,6 +442,7 @@ function App(): JSX.Element {
   const selectAIConversation = async (conversationId: string): Promise<void> => {
     setActiveConversationId(conversationId)
     setChatMessages(await window.readingPartner.listAIChatMessages(conversationId))
+    setIsChatDrawerOpen(true)
   }
 
   const createAIConversation = async (): Promise<AIConversationRecord | null> => {
@@ -455,6 +457,7 @@ function App(): JSX.Element {
     setAiConversations((items) => [conversation, ...items])
     setActiveConversationId(conversation.id)
     setChatMessages([])
+    setIsChatDrawerOpen(true)
     setStatus('已创建共读对话')
 
     return conversation
@@ -806,6 +809,7 @@ function App(): JSX.Element {
     }
 
     setChatMessages((items) => [...items, optimisticMessage])
+    setIsChatDrawerOpen(true)
     setChatDraft('')
     setAiRun({
       requestId,
@@ -1326,12 +1330,14 @@ function App(): JSX.Element {
             chatMessages={chatMessages}
             conversations={aiConversations}
             hasDocument={Boolean(activeDocument)}
+            isConversationOpen={isChatDrawerOpen}
             question={qaQuestion}
             readyProvider={readyProvider}
             selection={selection?.text ?? null}
             activeConversationId={activeConversationId}
             onAskDocument={(question) => void askDocumentQuestion(question)}
             onChatDraftChange={setChatDraft}
+            onCloseConversation={() => setIsChatDrawerOpen(false)}
             onCreateConversation={() => void createAIConversation()}
             onSendChat={(message) => void sendChatMessage(message)}
             onSelectConversation={(conversationId) => void selectAIConversation(conversationId)}
@@ -1543,11 +1549,13 @@ type AiPanelProps = {
   chatMessages: AIChatMessageRecord[]
   conversations: AIConversationRecord[]
   hasDocument: boolean
+  isConversationOpen: boolean
   question: string
   readyProvider: AIProviderRecord | null
   selection: string | null
   onAskDocument: (question: string) => void
   onChatDraftChange: (value: string) => void
+  onCloseConversation: () => void
   onCreateConversation: () => void
   onQuestionChange: (value: string) => void
   onRun: (promptType: AIPromptType) => void
@@ -1562,11 +1570,13 @@ function AiPanel({
   chatMessages,
   conversations,
   hasDocument,
+  isConversationOpen,
   question,
   readyProvider,
   selection,
   onAskDocument,
   onChatDraftChange,
+  onCloseConversation,
   onCreateConversation,
   onQuestionChange,
   onRun,
@@ -1578,82 +1588,22 @@ function AiPanel({
   const canSendChat =
     hasDocument && Boolean(readyProvider) && chatDraft.trim().length > 0 && aiRun?.status !== 'running'
   const activeChatRunning = aiRun?.source === 'chat' && aiRun.status === 'running'
+  const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId)
 
-  return (
-    <div className="inspector-content ai-workspace">
-      <aside className="ai-subnav">
-        <div className="ai-ready">
-          <Bot size={24} />
+  if (isConversationOpen && activeConversation) {
+    return (
+      <div className="inspector-content chat-drawer">
+        <header className="chat-drawer-header">
+          <button className="text-button neutral" onClick={onCloseConversation}>
+            <ChevronLeft size={15} />
+            返回
+          </button>
           <div>
-            <h2>AI 阅读助手</h2>
-            <p>
-              {readyProvider
-                ? `${readyProvider.label} / ${readyProvider.defaultModel}`
-                : '请先配置 API Key。'}
-            </p>
+            <strong>{activeConversation.title}</strong>
+            <span>{readyProvider ? `${readyProvider.label} / ${readyProvider.defaultModel}` : '未配置 AI'}</span>
           </div>
-        </div>
+        </header>
 
-        <div className="chat-toolbar">
-          <select
-            disabled={!hasDocument || conversations.length === 0}
-            value={activeConversationId ?? ''}
-            onChange={(event) => onSelectConversation(event.target.value)}
-          >
-            {conversations.length === 0 ? (
-              <option value="">暂无对话</option>
-            ) : (
-              conversations.map((conversation) => (
-                <option key={conversation.id} value={conversation.id}>
-                  {conversation.title}
-                </option>
-              ))
-            )}
-          </select>
-          <button disabled={!hasDocument} onClick={onCreateConversation}>
-            新对话
-          </button>
-        </div>
-
-        <form
-          className="document-qa"
-          onSubmit={(event) => {
-            event.preventDefault()
-            onAskDocument(question)
-          }}
-        >
-          <textarea
-            disabled={!hasDocument}
-            placeholder="一次性文档问答..."
-            value={question}
-            onChange={(event) => onQuestionChange(event.target.value)}
-          />
-          <button disabled={!canAskDocument} type="submit">
-            <Send size={16} />
-            提问
-          </button>
-        </form>
-
-        <div className="selected-preview">
-          <strong>当前选区</strong>
-          <p>{selection ?? '未选择文本'}</p>
-        </div>
-
-        <div className="prompt-grid">
-          <button disabled={!selection || !readyProvider} onClick={() => onRun('translate_selection')}>
-            翻译选区
-          </button>
-          <button disabled={!selection || !readyProvider} onClick={() => onRun('explain_selection')}>
-            解释概念
-          </button>
-          <button disabled={!selection || !readyProvider} onClick={() => onRun('summarize_selection')}>
-            总结段落
-          </button>
-          <span className="prompt-status">{aiRun?.output ? '已自动保存' : '输出会自动保存'}</span>
-        </div>
-      </aside>
-
-      <section className="chat-panel">
         <div className="chat-message-list">
           {chatMessages.length === 0 ? (
             <p className="muted">开始一段可以连续追问的共读对话。选中文本后发送，会把选区一起作为本轮上下文。</p>
@@ -1692,6 +1642,85 @@ function AiPanel({
             发送
           </button>
         </form>
+      </div>
+    )
+  }
+
+  return (
+    <div className="inspector-content">
+      <div className="ai-ready">
+        <Bot size={26} />
+        <div>
+          <h2>AI 阅读助手</h2>
+          <p>
+            {readyProvider
+              ? `${readyProvider.label} / ${readyProvider.defaultModel}`
+              : '请先配置 API Key。'}
+          </p>
+        </div>
+      </div>
+
+      <section className="conversation-menu">
+        <div className="conversation-menu-heading">
+          <strong>共读对话</strong>
+          <button disabled={!hasDocument} onClick={onCreateConversation}>
+            新对话
+          </button>
+        </div>
+        <div className="conversation-list">
+          {conversations.length === 0 ? (
+            <p className="muted">还没有对话，可以新建一段共读对话。</p>
+          ) : (
+            conversations.map((conversation) => (
+              <button
+                className="conversation-item"
+                key={conversation.id}
+                onClick={() => onSelectConversation(conversation.id)}
+              >
+                <strong>{conversation.title}</strong>
+                <span>{formatTime(conversation.updatedAt)}</span>
+              </button>
+            ))
+          )}
+        </div>
+      </section>
+
+      <form
+        className="document-qa"
+        onSubmit={(event) => {
+          event.preventDefault()
+          onAskDocument(question)
+        }}
+      >
+        <textarea
+          disabled={!hasDocument}
+          placeholder="一次性文档问答..."
+          value={question}
+          onChange={(event) => onQuestionChange(event.target.value)}
+        />
+        <button disabled={!canAskDocument} type="submit">
+          <Send size={16} />
+          提问
+        </button>
+      </form>
+
+      <div className="selected-preview">
+        <strong>当前选区</strong>
+        <p>{selection ?? '未选择文本'}</p>
+      </div>
+
+      <div className="prompt-grid">
+        <button disabled={!selection || !readyProvider} onClick={() => onRun('translate_selection')}>
+          翻译选区
+        </button>
+        <button disabled={!selection || !readyProvider} onClick={() => onRun('explain_selection')}>
+          解释概念
+        </button>
+        <button disabled={!selection || !readyProvider} onClick={() => onRun('summarize_selection')}>
+          总结段落
+        </button>
+        <span className="prompt-status">{aiRun?.output ? '已自动保存' : '输出会自动保存'}</span>
+      </div>
 
       {aiRun && aiRun.source !== 'chat' && (
         <div className="ai-output">
@@ -1706,7 +1735,6 @@ function AiPanel({
           )}
         </div>
       )}
-      </section>
     </div>
   )
 }

@@ -34,7 +34,7 @@ const createWindow = (): void => {
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 960,
-    minWidth: 1320,
+    minWidth: 1100,
     minHeight: 720,
     show: false,
     title: 'Reading Partner',

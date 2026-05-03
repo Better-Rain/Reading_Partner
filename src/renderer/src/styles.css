@@ -31,7 +31,7 @@ button {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 280px minmax(520px, 1fr) 520px;
+  grid-template-columns: 280px minmax(520px, 1fr) 360px;
   height: 100vh;
   background: #edf0f5;
 }
@@ -429,22 +429,6 @@ button:disabled {
   padding: 16px;
 }
 
-.ai-workspace {
-  display: grid;
-  grid-template-columns: 156px minmax(0, 1fr);
-  gap: 12px;
-  overflow: hidden;
-}
-
-.ai-subnav {
-  display: flex;
-  min-height: 0;
-  flex-direction: column;
-  gap: 12px;
-  overflow-y: auto;
-  padding-right: 2px;
-}
-
 .notes-panel {
   display: flex;
   flex-direction: column;
@@ -745,8 +729,71 @@ button:disabled {
 
 .ai-ready {
   display: flex;
-  flex-direction: column;
   gap: 12px;
+  margin-bottom: 12px;
+}
+
+.conversation-menu {
+  margin-bottom: 12px;
+  border: 1px solid #dde3ed;
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+}
+
+.conversation-menu-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.conversation-menu-heading button {
+  min-height: 32px;
+  border-radius: 8px;
+  background: #e8edf5;
+  color: #263447;
+  cursor: pointer;
+  font-weight: 700;
+  padding: 0 10px;
+}
+
+.conversation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.conversation-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-radius: 8px;
+  background: #f3f6fb;
+  color: #263447;
+  cursor: pointer;
+  padding: 10px;
+  text-align: left;
+}
+
+.conversation-item:hover {
+  background: #e9eef7;
+}
+
+.conversation-item strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-item span {
+  flex: 0 0 auto;
+  color: #6d7787;
+  font-size: 12px;
 }
 
 .document-qa {
@@ -759,6 +806,39 @@ button:disabled {
   flex-direction: column;
   gap: 10px;
   overflow: hidden;
+}
+
+.chat-drawer {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chat-drawer-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid #dde3ed;
+  padding-bottom: 12px;
+}
+
+.chat-drawer-header > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.chat-drawer-header strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-drawer-header span {
+  color: #6d7787;
+  font-size: 12px;
 }
 
 .chat-toolbar {
