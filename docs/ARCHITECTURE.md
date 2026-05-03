@@ -29,8 +29,8 @@ Responsibilities:
 - Native file dialogs.
 - Reading PDF files from disk.
 - SQLite database initialization and queries.
-- Secure AI key storage in a later milestone.
-- AI provider requests in a later milestone, so API keys do not enter the renderer.
+- Secure AI key storage through Electron `safeStorage`.
+- AI provider requests, so API keys do not enter the renderer.
 
 ### Preload
 
@@ -91,10 +91,16 @@ Core rules:
 - Use long-context models only when the task truly needs them.
 - For book-level Q&A, retrieve relevant chunks first instead of sending the entire PDF.
 
+Current implementation:
+
+- Renderer sends selected text, prompt type, document id, and page number through IPC.
+- Main process retrieves the encrypted provider key, calls the OpenAI-compatible `/chat/completions` endpoint with `stream: true`, and emits stream events back to the renderer.
+- On completion, the main process stores an `ai_artifacts` row.
+- The renderer also creates a visible note annotation from the returned AI artifact.
+
 ## Security Notes
 
 - API keys must not be stored in renderer localStorage.
 - Main process should own provider credentials.
 - External content in AI responses should be rendered as sanitized Markdown when Markdown rendering is added.
 - PDF file paths should be persisted locally, but sync/export features must treat them as sensitive user data.
-

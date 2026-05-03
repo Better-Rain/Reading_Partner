@@ -7,6 +7,7 @@ import {
   ChevronRight,
   FileText,
   Highlighter,
+  KeyRound,
   Languages,
   MessageSquarePlus,
   Minus,
@@ -19,9 +20,12 @@ import {
 } from 'lucide-react'
 import {
   AIProviderRecord,
+  AIPromptType,
+  AIStreamEvent,
   AnnotationRecord,
   DocumentRecord,
-  OpenPdfResult
+  OpenPdfResult,
+  ProviderKeyStatus
 } from '../../shared/types'
 
 type PanelTab = 'notes' | 'ai' | 'settings'
@@ -30,6 +34,23 @@ type SelectionState = {
   text: string
   x: number
   y: number
+}
+
+type AIRunState = {
+  requestId: string
+  promptType: AIPromptType
+  inputText: string
+  providerLabel: string
+  model: string
+  output: string
+  status: 'idle' | 'running' | 'done' | 'error'
+  error: string | null
+}
+
+const promptLabels: Record<AIPromptType, string> = {
+  translate_selection: '翻译',
+  explain_selection: '解释',
+  summarize_selection: '总结'
 }
 
 const formatBytes = (bytes: number): string => {
@@ -56,6 +77,7 @@ function App(): JSX.Element {
   const [pdfData, setPdfData] = useState<Uint8Array | null>(null)
   const [annotations, setAnnotations] = useState<AnnotationRecord[]>([])
   const [providers, setProviders] = useState<AIProviderRecord[]>([])
+  const [keyStatus, setKeyStatus] = useState<ProviderKeyStatus[]>([])
   const [activeTab, setActiveTab] = useState<PanelTab>('notes')
   const [selection, setSelection] = useState<SelectionState | null>(null)
   const [pageNumber, setPageNumber] = useState(1)
@@ -63,15 +85,32 @@ function App(): JSX.Element {
   const [scale, setScale] = useState(1.08)
   const [draftNote, setDraftNote] = useState('')
   const [status, setStatus] = useState('打开一本 PDF 开始阅读')
+  const [aiRun, setAiRun] = useState<AIRunState | null>(null)
 
   const currentPageAnnotations = useMemo(
     () => annotations.filter((item) => item.pageNumber === pageNumber),
     [annotations, pageNumber]
   )
 
+  const configuredProviderIds = useMemo(
+    () => new Set(keyStatus.filter((item) => item.configured).map((item) => item.providerId)),
+    [keyStatus]
+  )
+
+  const readyProvider = useMemo(
+    () => providers.find((provider) => provider.enabled && configuredProviderIds.has(provider.id)) ?? null,
+    [configuredProviderIds, providers]
+  )
+
   useEffect(() => {
     void refreshLibrary()
     void refreshProviders()
+  }, [])
+
+  useEffect(() => {
+    return window.readingPartner.onAIStreamEvent((event) => {
+      void handleAIStreamEvent(event)
+    })
   }, [])
 
   const refreshLibrary = async (): Promise<void> => {
@@ -80,13 +119,64 @@ function App(): JSX.Element {
   }
 
   const refreshProviders = async (): Promise<void> => {
-    const list = await window.readingPartner.listAIProviders()
-    setProviders(list)
+    const [providerList, statusList] = await Promise.all([
+      window.readingPartner.listAIProviders(),
+      window.readingPartner.listAIProviderKeyStatus()
+    ])
+    setProviders(providerList)
+    setKeyStatus(statusList)
   }
 
   const refreshAnnotations = async (documentId: string): Promise<void> => {
     const list = await window.readingPartner.listAnnotations(documentId)
     setAnnotations(list)
+  }
+
+  const handleAIStreamEvent = async (event: AIStreamEvent): Promise<void> => {
+    if (event.type === 'start') {
+      setAiRun((current) =>
+        current && current.requestId === event.requestId
+          ? { ...current, model: event.model, status: 'running', error: null }
+          : current
+      )
+      return
+    }
+
+    if (event.type === 'delta') {
+      setAiRun((current) =>
+        current && current.requestId === event.requestId
+          ? { ...current, output: `${current.output}${event.text}` }
+          : current
+      )
+      return
+    }
+
+    if (event.type === 'error') {
+      setAiRun((current) =>
+        current && current.requestId === event.requestId
+          ? { ...current, status: 'error', error: event.message }
+          : current
+      )
+      setStatus(`AI 调用失败：${event.message}`)
+      return
+    }
+
+    const note = await window.readingPartner.createAnnotation({
+      documentId: event.artifact.documentId,
+      type: 'note',
+      pageNumber: event.artifact.pageNumber ?? 1,
+      selectedText: event.artifact.inputText,
+      color: '#c7d2fe',
+      note: `AI ${promptLabels[event.artifact.promptType]}\n\n${event.artifact.outputMarkdown}`
+    })
+
+    setAnnotations((items) => [...items, note])
+    setAiRun((current) =>
+      current && current.requestId === event.requestId
+        ? { ...current, status: 'done', output: event.artifact.outputMarkdown }
+        : current
+    )
+    setStatus('AI 结果已保存为笔记')
   }
 
   const loadDocument = async (document: DocumentRecord): Promise<void> => {
@@ -143,12 +233,11 @@ function App(): JSX.Element {
       return
     }
 
-    const sourceText = selection?.text ?? null
     const created = await window.readingPartner.createAnnotation({
       documentId: activeDocument.id,
       type,
       pageNumber,
-      selectedText: sourceText,
+      selectedText: selection?.text ?? null,
       color: type === 'bookmark' ? null : color,
       note: note ?? null
     })
@@ -159,30 +248,40 @@ function App(): JSX.Element {
     setStatus(type === 'bookmark' ? '已添加书签' : '已保存批注')
   }
 
-  const createAiPlaceholder = async (promptType: string): Promise<void> => {
-    if (!activeDocument || !selection) {
+  const runAIAction = async (promptType: AIPromptType, text = selection?.text): Promise<void> => {
+    if (!activeDocument || !text) {
       return
     }
 
-    const labelMap: Record<string, string> = {
-      translate: '翻译',
-      explain: '解释',
-      summarize: '总结'
+    if (!readyProvider) {
+      setActiveTab('settings')
+      setStatus('请先在配置面板为至少一个启用的 Provider 保存 API Key')
+      return
     }
 
-    const created = await window.readingPartner.createAnnotation({
-      documentId: activeDocument.id,
-      type: 'note',
-      pageNumber,
-      selectedText: selection.text,
-      color: '#c7d2fe',
-      note: `AI ${labelMap[promptType] ?? '处理'}待接入：${selection.text.slice(0, 160)}`
+    const requestId = crypto.randomUUID()
+    setAiRun({
+      requestId,
+      promptType,
+      inputText: text,
+      providerLabel: readyProvider.label,
+      model: readyProvider.defaultModel,
+      output: '',
+      status: 'running',
+      error: null
     })
-
-    setAnnotations((items) => [...items, created])
     setActiveTab('ai')
     setSelection(null)
-    setStatus('已创建 AI 动作占位笔记，下一阶段接入流式模型调用')
+    setStatus(`正在使用 ${readyProvider.label} ${promptLabels[promptType]}选区`)
+
+    await window.readingPartner.runAIAction({
+      requestId,
+      providerId: readyProvider.id,
+      documentId: activeDocument.id,
+      pageNumber,
+      promptType,
+      selectedText: text
+    })
   }
 
   const deleteAnnotation = async (id: string): Promise<void> => {
@@ -203,6 +302,20 @@ function App(): JSX.Element {
     })
 
     setProviders((items) => items.map((item) => (item.id === updated.id ? updated : item)))
+  }
+
+  const saveProviderKey = async (providerId: string, apiKey: string): Promise<void> => {
+    const updated = await window.readingPartner.setAIProviderApiKey(providerId, apiKey)
+    setProviders((items) => items.map((item) => (item.id === updated.id ? updated : item)))
+    await refreshProviders()
+    setStatus('API Key 已加密保存')
+  }
+
+  const clearProviderKey = async (providerId: string): Promise<void> => {
+    const updated = await window.readingPartner.clearAIProviderApiKey(providerId)
+    setProviders((items) => items.map((item) => (item.id === updated.id ? updated : item)))
+    await refreshProviders()
+    setStatus('API Key 已清除')
   }
 
   return (
@@ -364,11 +477,11 @@ function App(): JSX.Element {
               <StickyNote size={16} />
               批注
             </button>
-            <button title="翻译" onClick={() => void createAiPlaceholder('translate')}>
+            <button title="翻译" onClick={() => void runAIAction('translate_selection')}>
               <Languages size={16} />
               翻译
             </button>
-            <button title="解释" onClick={() => void createAiPlaceholder('explain')}>
+            <button title="解释" onClick={() => void runAIAction('explain_selection')}>
               <Sparkles size={16} />
               解释
             </button>
@@ -407,10 +520,23 @@ function App(): JSX.Element {
           />
         )}
 
-        {activeTab === 'ai' && <AiPanel selection={selection?.text ?? null} />}
+        {activeTab === 'ai' && (
+          <AiPanel
+            aiRun={aiRun}
+            readyProvider={readyProvider}
+            selection={selection?.text ?? null}
+            onRun={(promptType) => void runAIAction(promptType)}
+          />
+        )}
 
         {activeTab === 'settings' && (
-          <SettingsPanel providers={providers} onToggle={(provider, enabled) => void updateProvider(provider, enabled)} />
+          <SettingsPanel
+            configuredProviderIds={configuredProviderIds}
+            providers={providers}
+            onClearKey={(providerId) => void clearProviderKey(providerId)}
+            onSaveKey={(providerId, apiKey) => void saveProviderKey(providerId, apiKey)}
+            onToggle={(provider, enabled) => void updateProvider(provider, enabled)}
+          />
         )}
       </aside>
     </div>
@@ -481,67 +607,137 @@ function NotesPanel({
   )
 }
 
-function AiPanel({ selection }: { selection: string | null }): JSX.Element {
+type AiPanelProps = {
+  aiRun: AIRunState | null
+  readyProvider: AIProviderRecord | null
+  selection: string | null
+  onRun: (promptType: AIPromptType) => void
+}
+
+function AiPanel({ aiRun, readyProvider, selection, onRun }: AiPanelProps): JSX.Element {
   return (
     <div className="inspector-content">
       <div className="ai-ready">
         <Bot size={26} />
         <div>
           <h2>AI 阅读助手</h2>
-          <p>当前版本已经预留选区翻译、解释、总结的动作入口。下一步会把调用放到主进程并支持流式输出。</p>
+          <p>
+            {readyProvider
+              ? `当前使用 ${readyProvider.label} / ${readyProvider.defaultModel}`
+              : '请先在配置页为启用的 Provider 保存 API Key。'}
+          </p>
         </div>
       </div>
+
       <div className="selected-preview">
         <strong>当前选区</strong>
-        <p>{selection ?? '在 PDF 中选中一段文字后，可从浮动工具条触发 AI 动作。'}</p>
+        <p>{selection ?? aiRun?.inputText ?? '在 PDF 中选中一段文字后，可从浮动工具条触发 AI 动作。'}</p>
       </div>
+
       <div className="prompt-grid">
-        <button disabled={!selection}>翻译选区</button>
-        <button disabled={!selection}>解释概念</button>
-        <button disabled={!selection}>总结段落</button>
-        <button disabled={!selection}>生成笔记</button>
+        <button disabled={!selection || !readyProvider} onClick={() => onRun('translate_selection')}>
+          翻译选区
+        </button>
+        <button disabled={!selection || !readyProvider} onClick={() => onRun('explain_selection')}>
+          解释概念
+        </button>
+        <button disabled={!selection || !readyProvider} onClick={() => onRun('summarize_selection')}>
+          总结段落
+        </button>
+        <button disabled={!aiRun?.output}>已保存为笔记</button>
       </div>
+
+      {aiRun && (
+        <div className="ai-output">
+          <div className="ai-output-heading">
+            <strong>{promptLabels[aiRun.promptType]}</strong>
+            <span>{aiRun.status === 'running' ? '生成中' : aiRun.status}</span>
+          </div>
+          {aiRun.error ? <p className="error-text">{aiRun.error}</p> : <pre>{aiRun.output || '等待模型返回...'}</pre>}
+        </div>
+      )}
     </div>
   )
 }
 
 type SettingsPanelProps = {
+  configuredProviderIds: Set<string>
   providers: AIProviderRecord[]
+  onClearKey: (providerId: string) => void
+  onSaveKey: (providerId: string, apiKey: string) => void
   onToggle: (provider: AIProviderRecord, enabled: boolean) => void
 }
 
-function SettingsPanel({ providers, onToggle }: SettingsPanelProps): JSX.Element {
+function SettingsPanel({
+  configuredProviderIds,
+  providers,
+  onClearKey,
+  onSaveKey,
+  onToggle
+}: SettingsPanelProps): JSX.Element {
+  const [draftKeys, setDraftKeys] = useState<Record<string, string>>({})
+
   return (
     <div className="inspector-content">
       <div className="settings-intro">
         <h2>AI Provider</h2>
-        <p>这里先保存国内常用 OpenAI-compatible Provider 的基础配置。API Key 安全存储和真实请求在下一阶段接入。</p>
+        <p>API Key 会在主进程通过 Electron safeStorage 加密保存，页面只显示是否已配置。</p>
       </div>
 
       <div className="provider-list">
-        {providers.map((provider) => (
-          <article className="provider-item" key={provider.id}>
-            <div className="provider-heading">
-              <div>
-                <strong>{provider.label}</strong>
-                <span>{provider.defaultModel}</span>
+        {providers.map((provider) => {
+          const configured = configuredProviderIds.has(provider.id)
+
+          return (
+            <article className="provider-item" key={provider.id}>
+              <div className="provider-heading">
+                <div>
+                  <strong>{provider.label}</strong>
+                  <span>{provider.defaultModel}</span>
+                </div>
+                <label className="switch">
+                  <input
+                    checked={provider.enabled}
+                    type="checkbox"
+                    onChange={(event) => onToggle(provider, event.target.checked)}
+                  />
+                  <span />
+                </label>
               </div>
-              <label className="switch">
+              <code>{provider.baseUrl}</code>
+              <div className="provider-tags">
+                {provider.supportsThinking && <span>thinking</span>}
+                {provider.supportsLongContext && <span>long context</span>}
+                <span className={configured ? 'tag-ok' : 'tag-warn'}>
+                  <KeyRound size={12} />
+                  {configured ? 'key saved' : 'no key'}
+                </span>
+              </div>
+              <div className="key-row">
                 <input
-                  checked={provider.enabled}
-                  type="checkbox"
-                  onChange={(event) => onToggle(provider, event.target.checked)}
+                  placeholder={configured ? '输入新 Key 可覆盖当前保存值' : '粘贴 API Key'}
+                  type="password"
+                  value={draftKeys[provider.id] ?? ''}
+                  onChange={(event) =>
+                    setDraftKeys((items) => ({ ...items, [provider.id]: event.target.value }))
+                  }
                 />
-                <span />
-              </label>
-            </div>
-            <code>{provider.baseUrl}</code>
-            <div className="provider-tags">
-              {provider.supportsThinking && <span>thinking</span>}
-              {provider.supportsLongContext && <span>long context</span>}
-            </div>
-          </article>
-        ))}
+                <button
+                  disabled={!draftKeys[provider.id]?.trim()}
+                  onClick={() => {
+                    onSaveKey(provider.id, draftKeys[provider.id] ?? '')
+                    setDraftKeys((items) => ({ ...items, [provider.id]: '' }))
+                  }}
+                >
+                  保存
+                </button>
+                <button disabled={!configured} onClick={() => onClearKey(provider.id)}>
+                  清除
+                </button>
+              </div>
+            </article>
+          )
+        })}
       </div>
     </div>
   )

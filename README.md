@@ -48,3 +48,8 @@ npm run build
 - [Roadmap](docs/ROADMAP.md)
 - [AI Provider Strategy](docs/AI_PROVIDER_STRATEGY.md)
 - [Data Model](docs/DATA_MODEL.md)
+- [User Setup Guide](docs/USER_SETUP_GUIDE.md)
+
+## Current AI Flow
+
+The app can now store provider API keys through Electron `safeStorage`, run OpenAI-compatible streaming chat requests from the main process, and save AI outputs as notes attached to the selected PDF passage.

@@ -1,4 +1,5 @@
 export type AnnotationType = 'highlight' | 'note' | 'bookmark'
+export type AIPromptType = 'translate_selection' | 'explain_selection' | 'summarize_selection'
 
 export type DocumentRecord = {
   id: string
@@ -45,6 +46,19 @@ export type AIProviderRecord = {
   updatedAt: string
 }
 
+export type AIArtifactRecord = {
+  id: string
+  documentId: string
+  annotationId: string | null
+  providerId: string
+  model: string
+  promptType: AIPromptType
+  inputText: string
+  outputMarkdown: string
+  pageNumber: number | null
+  createdAt: string
+}
+
 export type UpsertAIProviderInput = {
   id: string
   label: string
@@ -61,6 +75,43 @@ export type OpenPdfResult = {
   data: ArrayBuffer
 }
 
+export type ProviderKeyStatus = {
+  providerId: string
+  configured: boolean
+}
+
+export type RunAIActionInput = {
+  requestId: string
+  providerId: string
+  documentId: string
+  pageNumber: number
+  promptType: AIPromptType
+  selectedText: string
+}
+
+export type AIStreamEvent =
+  | {
+      requestId: string
+      type: 'start'
+      providerId: string
+      model: string
+    }
+  | {
+      requestId: string
+      type: 'delta'
+      text: string
+    }
+  | {
+      requestId: string
+      type: 'done'
+      artifact: AIArtifactRecord
+    }
+  | {
+      requestId: string
+      type: 'error'
+      message: string
+    }
+
 export type ReadingPartnerApi = {
   openPdfDialog: () => Promise<OpenPdfResult | null>
   readPdf: (documentId: string) => Promise<ArrayBuffer>
@@ -70,5 +121,9 @@ export type ReadingPartnerApi = {
   deleteAnnotation: (id: string) => Promise<void>
   listAIProviders: () => Promise<AIProviderRecord[]>
   upsertAIProvider: (input: UpsertAIProviderInput) => Promise<AIProviderRecord>
+  setAIProviderApiKey: (providerId: string, apiKey: string) => Promise<AIProviderRecord>
+  clearAIProviderApiKey: (providerId: string) => Promise<AIProviderRecord>
+  listAIProviderKeyStatus: () => Promise<ProviderKeyStatus[]>
+  runAIAction: (input: RunAIActionInput) => Promise<void>
+  onAIStreamEvent: (callback: (event: AIStreamEvent) => void) => () => void
 }
-

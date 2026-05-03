@@ -5,6 +5,8 @@ import { createRequire } from 'node:module'
 import { dirname } from 'node:path'
 import {
   AIProviderRecord,
+  AIArtifactRecord,
+  AIPromptType,
   AnnotationRecord,
   CreateAnnotationInput,
   DocumentRecord,
@@ -49,6 +51,19 @@ type AIProviderRow = {
   updated_at: string
 }
 
+type AIArtifactRow = {
+  id: string
+  document_id: string
+  annotation_id: string | null
+  provider_id: string
+  model: string
+  prompt_type: AIPromptType
+  input_text: string
+  output_markdown: string
+  page_number: number | null
+  created_at: string
+}
+
 const toDocument = (row: DocumentRow): DocumentRecord => ({
   id: row.id,
   title: row.title,
@@ -82,6 +97,19 @@ const toAIProvider = (row: AIProviderRow): AIProviderRecord => ({
   supportsLongContext: row.supports_long_context === 1,
   enabled: row.enabled === 1,
   updatedAt: row.updated_at
+})
+
+const toAIArtifact = (row: AIArtifactRow): AIArtifactRecord => ({
+  id: row.id,
+  documentId: row.document_id,
+  annotationId: row.annotation_id,
+  providerId: row.provider_id,
+  model: row.model,
+  promptType: row.prompt_type,
+  inputText: row.input_text,
+  outputMarkdown: row.output_markdown,
+  pageNumber: row.page_number,
+  createdAt: row.created_at
 })
 
 export class ReadingPartnerDatabase {
@@ -127,9 +155,7 @@ export class ReadingPartnerDatabase {
   importDocument(filePath: string): DocumentRecord {
     const fileStat = statSync(filePath)
     const title = filePath.split(/[\\/]/).at(-1) ?? 'Untitled PDF'
-    const existing = this.db
-      .prepare('select * from documents where file_path = ?')
-      .get(filePath) as DocumentRow | undefined
+    const existing = this.get<DocumentRow>('select * from documents where file_path = ?', [filePath])
     const timestamp = now()
 
     if (existing) {
@@ -209,6 +235,16 @@ export class ReadingPartnerDatabase {
     return rows.map(toAIProvider)
   }
 
+  getAIProvider(id: string): AIProviderRecord {
+    const row = this.get<AIProviderRow>('select * from ai_providers where id = ?', [id])
+
+    if (!row) {
+      throw new Error(`AI provider not found: ${id}`)
+    }
+
+    return toAIProvider(row)
+  }
+
   upsertAIProvider(input: UpsertAIProviderInput): AIProviderRecord {
     const timestamp = now()
 
@@ -245,6 +281,62 @@ export class ReadingPartnerDatabase {
       throw new Error(`AI provider not found after upsert: ${input.id}`)
     }
     return toAIProvider(row)
+  }
+
+  setAIProviderKeyRef(providerId: string, apiKeyRef: string | null): AIProviderRecord {
+    const provider = this.getAIProvider(providerId)
+
+    return this.upsertAIProvider({
+      id: provider.id,
+      label: provider.label,
+      baseUrl: provider.baseUrl,
+      defaultModel: provider.defaultModel,
+      apiKeyRef,
+      supportsThinking: provider.supportsThinking,
+      supportsLongContext: provider.supportsLongContext,
+      enabled: provider.enabled
+    })
+  }
+
+  createAIArtifact(input: {
+    documentId: string
+    annotationId?: string | null
+    providerId: string
+    model: string
+    promptType: AIPromptType
+    inputText: string
+    outputMarkdown: string
+    pageNumber?: number | null
+  }): AIArtifactRecord {
+    const id = randomUUID()
+    const timestamp = now()
+
+    this.db.run(
+      `insert into ai_artifacts (
+        id, document_id, annotation_id, provider_id, model, prompt_type,
+        input_text, output_markdown, page_number, created_at
+      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        input.documentId,
+        input.annotationId ?? null,
+        input.providerId,
+        input.model,
+        input.promptType,
+        input.inputText,
+        input.outputMarkdown,
+        input.pageNumber ?? null,
+        timestamp
+      ]
+    )
+    this.persist()
+
+    const row = this.get<AIArtifactRow>('select * from ai_artifacts where id = ?', [id])
+    if (!row) {
+      throw new Error(`AI artifact not found after insert: ${id}`)
+    }
+
+    return toAIArtifact(row)
   }
 
   private migrate(): void {

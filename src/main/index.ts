@@ -1,11 +1,19 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { runOpenAICompatibleCompletion } from './ai'
 import { ReadingPartnerDatabase } from './database'
-import { CreateAnnotationInput, UpsertAIProviderInput } from '../shared/types'
+import { KeyStore } from './keyStore'
+import {
+  AIStreamEvent,
+  CreateAnnotationInput,
+  RunAIActionInput,
+  UpsertAIProviderInput
+} from '../shared/types'
 
 let mainWindow: BrowserWindow | null = null
 let database: ReadingPartnerDatabase
+let keyStore: KeyStore
 
 const toArrayBuffer = (buffer: Buffer): ArrayBuffer =>
   buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer
@@ -79,9 +87,65 @@ const registerIpc = (): void => {
   ipcMain.handle('aiProviders:upsert', (_event, input: UpsertAIProviderInput) =>
     database.upsertAIProvider(input)
   )
+
+  ipcMain.handle('aiProviders:setApiKey', (_event, providerId: string, apiKey: string) => {
+    const ref = `provider:${providerId}`
+    keyStore.set(ref, apiKey)
+    return database.setAIProviderKeyRef(providerId, ref)
+  })
+
+  ipcMain.handle('aiProviders:clearApiKey', (_event, providerId: string) => {
+    const provider = database.getAIProvider(providerId)
+    keyStore.delete(provider.apiKeyRef)
+    return database.setAIProviderKeyRef(providerId, null)
+  })
+
+  ipcMain.handle('aiProviders:keyStatus', () =>
+    keyStore.listConfigured(
+      database.listAIProviders().map((provider) => ({
+        providerId: provider.id,
+        apiKeyRef: provider.apiKeyRef
+      }))
+    )
+  )
+
+  ipcMain.handle('ai:runAction', async (event, input: RunAIActionInput) => {
+    const provider = database.getAIProvider(input.providerId)
+    const apiKey = keyStore.get(provider.apiKeyRef)
+    const sendEvent = (payload: AIStreamEvent): void => {
+      event.sender.send('ai:streamEvent', payload)
+    }
+
+    try {
+      await runOpenAICompatibleCompletion({
+        input,
+        provider,
+        apiKey,
+        onEvent: sendEvent,
+        saveArtifact: (output) =>
+          database.createAIArtifact({
+            documentId: input.documentId,
+            providerId: provider.id,
+            model: provider.defaultModel,
+            promptType: input.promptType,
+            inputText: input.selectedText,
+            outputMarkdown: output,
+            pageNumber: input.pageNumber
+          })
+      })
+    } catch (error) {
+      sendEvent({
+        requestId: input.requestId,
+        type: 'error',
+        message: error instanceof Error ? error.message : String(error)
+      })
+    }
+  })
 }
 
 app.whenReady().then(() => {
+  keyStore = new KeyStore(join(app.getPath('userData'), 'secrets.json'))
+
   void ReadingPartnerDatabase.open(join(app.getPath('userData'), 'reading-partner.sqlite')).then(
     (store) => {
       database = store

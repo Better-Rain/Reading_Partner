@@ -511,12 +511,86 @@ button:disabled {
 }
 
 .provider-tags span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   border-radius: 999px;
   background: #e3f2ed;
   color: #23624d;
   padding: 4px 8px;
   font-size: 12px;
   font-weight: 700;
+}
+
+.provider-tags .tag-ok {
+  background: #e3f2ed;
+  color: #23624d;
+}
+
+.provider-tags .tag-warn {
+  background: #fff0d9;
+  color: #8a5a14;
+}
+
+.key-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+}
+
+.key-row input {
+  min-width: 0;
+  height: 34px;
+  border: 1px solid #d6deeb;
+  border-radius: 8px;
+  background: #fff;
+  outline: none;
+  padding: 0 10px;
+}
+
+.key-row button {
+  height: 34px;
+  border-radius: 8px;
+  background: #e8edf5;
+  color: #263447;
+  cursor: pointer;
+  font-weight: 700;
+  padding: 0 10px;
+}
+
+.ai-output {
+  margin-top: 12px;
+  border: 1px solid #dde3ed;
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+}
+
+.ai-output-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.ai-output-heading span {
+  color: #6d7787;
+  font-size: 12px;
+}
+
+.ai-output pre {
+  margin: 0;
+  color: #263447;
+  font-family: inherit;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.error-text {
+  margin: 0;
+  color: #9b2735;
+  line-height: 1.6;
 }
 
 .switch {
@@ -561,4 +635,3 @@ button:disabled {
 .switch input:checked + span::after {
   transform: translateX(18px);
 }
-

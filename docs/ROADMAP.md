@@ -42,13 +42,26 @@ Deferred:
 
 ## Phase 2: AI-Assisted Reading
 
-Goals:
+Status: in progress.
+
+Implemented:
+
+- Configurable OpenAI-compatible provider presets.
+- Encrypted API Key storage through Electron `safeStorage`.
+- Main-process streaming AI requests.
+- Selection translation, explanation, and summary entry points.
+- AI output saved back as source-linked notes.
+
+Remaining goals:
 
 - Configure OpenAI-compatible providers.
 - Add DeepSeek and Alibaba Bailian/Qwen presets.
 - Add Kimi and Zhipu presets.
 - Stream model output in the right panel.
 - Save AI output as source-linked notes.
+- Add cancellable requests.
+- Add model/base URL editing in the UI.
+- Add saved AI artifact browser separate from note annotations.
 
 Initial AI actions:
 
@@ -107,4 +120,3 @@ Goals:
 - Multi-document projects.
 - Backup and migration.
 - Windows installer.
-
