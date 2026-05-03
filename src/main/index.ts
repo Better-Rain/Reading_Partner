@@ -34,7 +34,7 @@ const createWindow = (): void => {
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 960,
-    minWidth: 1100,
+    minWidth: 1320,
     minHeight: 720,
     show: false,
     title: 'Reading Partner',
@@ -371,7 +371,7 @@ const registerIpc = (): void => {
       {
         role: 'system',
         content:
-          '你是 Reading Partner，一个和用户一起阅读 PDF 文献的中文共读伙伴。结合对话历史、用户当前选区和文档片段回答。回答要具体、克制；引用文档内容时标注“第 X 页”；信息不足时直接说明缺口。'
+          '你是 Reading Partner，一个和用户一起阅读 PDF 文献的中文共读伙伴。结合对话历史、用户当前选区和文档片段回答。回答要具体、克制；引用文档内容时标注“第 X 页”；信息不足时直接说明缺口。不要输出隐藏推理或思维链，只输出最终回答。'
       },
       {
         role: 'user',

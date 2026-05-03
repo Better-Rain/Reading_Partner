@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import type { MouseEvent as ReactMouseEvent, WheelEvent } from 'react'
 import type { Source } from 'react-pdf/dist/shared/types.js'
 import { Document, Page } from 'react-pdf'
@@ -118,6 +119,154 @@ type PanState = {
   startY: number
   scrollLeft: number
   scrollTop: number
+}
+
+const renderInlineMarkdown = (text: string): ReactNode[] => {
+  const nodes: ReactNode[] = []
+  const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+
+  while ((match = pattern.exec(text))) {
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index))
+    }
+
+    const token = match[0]
+    const key = `${match.index}-${token}`
+
+    if (token.startsWith('**')) {
+      nodes.push(<strong key={key}>{token.slice(2, -2)}</strong>)
+    } else if (token.startsWith('`')) {
+      nodes.push(<code key={key}>{token.slice(1, -1)}</code>)
+    } else {
+      nodes.push(<em key={key}>{token.slice(1, -1)}</em>)
+    }
+
+    lastIndex = match.index + token.length
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex))
+  }
+
+  return nodes
+}
+
+function MarkdownContent({ text }: { text: string }): JSX.Element {
+  const lines = text.replace(/\r\n/g, '\n').split('\n')
+  const blocks: ReactNode[] = []
+  let index = 0
+
+  while (index < lines.length) {
+    const line = lines[index]
+    const trimmed = line.trim()
+
+    if (!trimmed) {
+      index += 1
+      continue
+    }
+
+    if (trimmed.startsWith('### ')) {
+      blocks.push(<h3 key={index}>{renderInlineMarkdown(trimmed.slice(4))}</h3>)
+      index += 1
+      continue
+    }
+
+    if (trimmed.startsWith('## ')) {
+      blocks.push(<h2 key={index}>{renderInlineMarkdown(trimmed.slice(3))}</h2>)
+      index += 1
+      continue
+    }
+
+    if (trimmed.startsWith('# ')) {
+      blocks.push(<h2 key={index}>{renderInlineMarkdown(trimmed.slice(2))}</h2>)
+      index += 1
+      continue
+    }
+
+    if (trimmed.startsWith('> ')) {
+      const items: string[] = []
+      const blockIndex = index
+
+      while (index < lines.length && lines[index].trim().startsWith('> ')) {
+        items.push(lines[index].trim().slice(2))
+        index += 1
+      }
+
+      blocks.push(
+        <blockquote key={blockIndex}>
+          {items.map((item, itemIndex) => (
+            <p key={`${blockIndex}-${itemIndex}`}>{renderInlineMarkdown(item)}</p>
+          ))}
+        </blockquote>
+      )
+      continue
+    }
+
+    if (/^[-*]\s+/.test(trimmed)) {
+      const items: string[] = []
+      const blockIndex = index
+
+      while (index < lines.length && /^[-*]\s+/.test(lines[index].trim())) {
+        items.push(lines[index].trim().replace(/^[-*]\s+/, ''))
+        index += 1
+      }
+
+      blocks.push(
+        <ul key={blockIndex}>
+          {items.map((item, itemIndex) => (
+            <li key={`${blockIndex}-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
+          ))}
+        </ul>
+      )
+      continue
+    }
+
+    if (/^\d+\.\s+/.test(trimmed)) {
+      const items: string[] = []
+      const blockIndex = index
+
+      while (index < lines.length && /^\d+\.\s+/.test(lines[index].trim())) {
+        items.push(lines[index].trim().replace(/^\d+\.\s+/, ''))
+        index += 1
+      }
+
+      blocks.push(
+        <ol key={blockIndex}>
+          {items.map((item, itemIndex) => (
+            <li key={`${blockIndex}-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
+          ))}
+        </ol>
+      )
+      continue
+    }
+
+    const paragraph: string[] = [trimmed]
+    const blockIndex = index
+    index += 1
+
+    while (index < lines.length) {
+      const next = lines[index].trim()
+
+      if (
+        !next ||
+        next.startsWith('#') ||
+        next.startsWith('> ') ||
+        /^[-*]\s+/.test(next) ||
+        /^\d+\.\s+/.test(next)
+      ) {
+        break
+      }
+
+      paragraph.push(next)
+      index += 1
+    }
+
+    blocks.push(<p key={blockIndex}>{renderInlineMarkdown(paragraph.join(' '))}</p>)
+  }
+
+  return <div className="markdown-content">{blocks}</div>
 }
 
 function App(): JSX.Element {
@@ -1431,20 +1580,20 @@ function AiPanel({
   const activeChatRunning = aiRun?.source === 'chat' && aiRun.status === 'running'
 
   return (
-    <div className="inspector-content">
-      <div className="ai-ready">
-        <Bot size={26} />
-        <div>
-          <h2>AI 阅读助手</h2>
-          <p>
-            {readyProvider
-              ? `当前使用 ${readyProvider.label} / ${readyProvider.defaultModel}`
-              : '请先在配置页为启用的 Provider 保存 API Key。'}
-          </p>
+    <div className="inspector-content ai-workspace">
+      <aside className="ai-subnav">
+        <div className="ai-ready">
+          <Bot size={24} />
+          <div>
+            <h2>AI 阅读助手</h2>
+            <p>
+              {readyProvider
+                ? `${readyProvider.label} / ${readyProvider.defaultModel}`
+                : '请先配置 API Key。'}
+            </p>
+          </div>
         </div>
-      </div>
 
-      <section className="chat-panel">
         <div className="chat-toolbar">
           <select
             disabled={!hasDocument || conversations.length === 0}
@@ -1466,6 +1615,45 @@ function AiPanel({
           </button>
         </div>
 
+        <form
+          className="document-qa"
+          onSubmit={(event) => {
+            event.preventDefault()
+            onAskDocument(question)
+          }}
+        >
+          <textarea
+            disabled={!hasDocument}
+            placeholder="一次性文档问答..."
+            value={question}
+            onChange={(event) => onQuestionChange(event.target.value)}
+          />
+          <button disabled={!canAskDocument} type="submit">
+            <Send size={16} />
+            提问
+          </button>
+        </form>
+
+        <div className="selected-preview">
+          <strong>当前选区</strong>
+          <p>{selection ?? '未选择文本'}</p>
+        </div>
+
+        <div className="prompt-grid">
+          <button disabled={!selection || !readyProvider} onClick={() => onRun('translate_selection')}>
+            翻译选区
+          </button>
+          <button disabled={!selection || !readyProvider} onClick={() => onRun('explain_selection')}>
+            解释概念
+          </button>
+          <button disabled={!selection || !readyProvider} onClick={() => onRun('summarize_selection')}>
+            总结段落
+          </button>
+          <span className="prompt-status">{aiRun?.output ? '已自动保存' : '输出会自动保存'}</span>
+        </div>
+      </aside>
+
+      <section className="chat-panel">
         <div className="chat-message-list">
           {chatMessages.length === 0 ? (
             <p className="muted">开始一段可以连续追问的共读对话。选中文本后发送，会把选区一起作为本轮上下文。</p>
@@ -1474,14 +1662,14 @@ function AiPanel({
               <article className={`chat-message ${message.role}`} key={message.id}>
                 <strong>{message.role === 'user' ? '你' : 'Reading Partner'}</strong>
                 {message.selectedText && <blockquote>{message.selectedText}</blockquote>}
-                <p>{message.content}</p>
+                <MarkdownContent text={message.content} />
               </article>
             ))
           )}
           {activeChatRunning && (
             <article className="chat-message assistant">
               <strong>Reading Partner</strong>
-              <p>{aiRun.output || '正在思考...'}</p>
+              <MarkdownContent text={aiRun.output || '正在思考...'} />
             </article>
           )}
         </div>
@@ -1504,44 +1692,6 @@ function AiPanel({
             发送
           </button>
         </form>
-      </section>
-
-      <form
-        className="document-qa"
-        onSubmit={(event) => {
-          event.preventDefault()
-          onAskDocument(question)
-        }}
-      >
-        <textarea
-          disabled={!hasDocument}
-          placeholder="向当前文档提问..."
-          value={question}
-          onChange={(event) => onQuestionChange(event.target.value)}
-        />
-        <button disabled={!canAskDocument} type="submit">
-          <Send size={16} />
-          提问
-        </button>
-      </form>
-
-      <div className="selected-preview">
-        <strong>当前选区</strong>
-        <p>{selection ?? aiRun?.inputText ?? '在 PDF 中选中一段文字后，可从浮动工具条触发 AI 动作。'}</p>
-      </div>
-
-      <div className="prompt-grid">
-        <button disabled={!selection || !readyProvider} onClick={() => onRun('translate_selection')}>
-          翻译选区
-        </button>
-        <button disabled={!selection || !readyProvider} onClick={() => onRun('explain_selection')}>
-          解释概念
-        </button>
-        <button disabled={!selection || !readyProvider} onClick={() => onRun('summarize_selection')}>
-          总结段落
-        </button>
-        <span className="prompt-status">{aiRun?.output ? '已自动保存' : '输出会自动保存'}</span>
-      </div>
 
       {aiRun && aiRun.source !== 'chat' && (
         <div className="ai-output">
@@ -1549,9 +1699,14 @@ function AiPanel({
             <strong>{promptLabels[aiRun.promptType]}</strong>
             <span>{aiRun.status === 'running' ? '生成中' : aiRun.status}</span>
           </div>
-          {aiRun.error ? <p className="error-text">{aiRun.error}</p> : <pre>{aiRun.output || '等待模型返回...'}</pre>}
+          {aiRun.error ? (
+            <p className="error-text">{aiRun.error}</p>
+          ) : (
+            <MarkdownContent text={aiRun.output || '等待模型返回...'} />
+          )}
         </div>
       )}
+      </section>
     </div>
   )
 }

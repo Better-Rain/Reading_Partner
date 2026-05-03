@@ -31,7 +31,7 @@ button {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 280px minmax(520px, 1fr) 360px;
+  grid-template-columns: 280px minmax(520px, 1fr) 520px;
   height: 100vh;
   background: #edf0f5;
 }
@@ -429,6 +429,22 @@ button:disabled {
   padding: 16px;
 }
 
+.ai-workspace {
+  display: grid;
+  grid-template-columns: 156px minmax(0, 1fr);
+  gap: 12px;
+  overflow: hidden;
+}
+
+.ai-subnav {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
 .notes-panel {
   display: flex;
   flex-direction: column;
@@ -601,8 +617,7 @@ button:disabled {
 .vocabulary-item,
 .provider-item,
 .selected-preview,
-.ai-ready,
-.chat-panel {
+.ai-ready {
   border: 1px solid #dde3ed;
   border-radius: 8px;
   background: #fff;
@@ -730,8 +745,8 @@ button:disabled {
 
 .ai-ready {
   display: flex;
+  flex-direction: column;
   gap: 12px;
-  margin-bottom: 12px;
 }
 
 .document-qa {
@@ -740,14 +755,15 @@ button:disabled {
 
 .chat-panel {
   display: flex;
+  min-height: 0;
   flex-direction: column;
   gap: 10px;
-  margin-bottom: 12px;
+  overflow: hidden;
 }
 
 .chat-toolbar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
 }
 
@@ -758,9 +774,10 @@ button:disabled {
 
 .chat-message-list {
   display: flex;
-  max-height: 280px;
+  flex: 1;
+  min-height: 0;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -801,6 +818,57 @@ button:disabled {
 
 .chat-composer textarea {
   min-height: 76px;
+}
+
+.markdown-content {
+  color: #263447;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.markdown-content h2,
+.markdown-content h3 {
+  margin: 14px 0 8px;
+  color: #18202b;
+  line-height: 1.35;
+}
+
+.markdown-content h2 {
+  font-size: 17px;
+}
+
+.markdown-content h3 {
+  font-size: 15px;
+}
+
+.markdown-content p {
+  margin: 8px 0 0;
+  white-space: normal;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.markdown-content li {
+  margin: 5px 0;
+}
+
+.markdown-content blockquote {
+  margin: 10px 0 0;
+  border-left: 3px solid #9db7dc;
+  color: #4a5668;
+  padding-left: 10px;
+}
+
+.markdown-content code {
+  border-radius: 4px;
+  background: #eef2f7;
+  padding: 1px 4px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.92em;
 }
 
 .ai-ready p,

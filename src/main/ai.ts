@@ -31,7 +31,7 @@ const promptLabels: Record<AIPromptType, string> = {
 const buildMessages = (input: RunAIActionInput): ChatMessage[] => {
   const { promptType, selectedText } = input
   const baseSystem =
-    'You are Reading Partner, an AI assistant embedded in a PDF reading app. Answer in concise Chinese unless the user-selected text requires preserving English terms. Keep citations or original terms when useful.'
+    'You are Reading Partner, an AI assistant embedded in a PDF reading app. Answer in concise Chinese unless the user-selected text requires preserving English terms. Keep citations or original terms when useful. Do not reveal hidden reasoning or private chain-of-thought; provide only the final helpful answer.'
 
   if (promptType === 'ask_document') {
     const context = input.context?.length
@@ -128,7 +128,7 @@ const extractDelta = (payload: unknown): string => {
     message?: { content?: unknown }
   }
 
-  const content = first.delta?.content ?? first.delta?.reasoning_content ?? first.message?.content
+  const content = first.delta?.content ?? first.message?.content
   return typeof content === 'string' ? content : ''
 }
 
