@@ -257,17 +257,15 @@ button:disabled {
 
 .reader-surface {
   position: relative;
-  display: grid;
   flex: 1;
   min-height: 0;
-  place-items: start center;
   overflow: auto;
   background:
     linear-gradient(90deg, rgba(26, 44, 66, 0.05) 1px, transparent 1px),
     linear-gradient(rgba(26, 44, 66, 0.05) 1px, transparent 1px),
     #e6eaf0;
   background-size: 28px 28px;
-  padding: 28px;
+  padding: 0;
 }
 
 .reader-surface.pan-enabled {
@@ -279,7 +277,24 @@ button:disabled {
   user-select: none;
 }
 
+.reader-surface.is-panning .react-pdf__Page__textContent,
+.reader-surface.is-panning .react-pdf__Page__annotations {
+  pointer-events: none;
+}
+
+.pdf-stage {
+  display: flex;
+  width: max-content;
+  min-width: calc(100% + 192px);
+  min-height: calc(100% + 192px);
+  align-items: flex-start;
+  box-sizing: border-box;
+  justify-content: center;
+  padding: 96px;
+}
+
 .pdf-page-frame {
+  margin: 0 auto;
   min-height: 72vh;
   border-radius: 6px;
   background: #fff;

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { PointerEvent, WheelEvent } from 'react'
+import type { MouseEvent as ReactMouseEvent, WheelEvent } from 'react'
 import type { Source } from 'react-pdf/dist/shared/types.js'
 import { Document, Page } from 'react-pdf'
 import {
@@ -62,8 +62,8 @@ const promptLabels: Record<AIPromptType, string> = {
 }
 
 const minScale = 0.75
-const maxScale = 1.8
-const scaleStep = 0.1
+const maxScale = 3
+const scaleStep = 0.12
 
 const clampScale = (value: number): number =>
   Math.min(maxScale, Math.max(minScale, Number(value.toFixed(2))))
@@ -91,7 +91,6 @@ const toPdfBlobUrl = (data: ArrayBuffer | Uint8Array): string => {
 }
 
 type PanState = {
-  pointerId: number
   startX: number
   startY: number
   scrollLeft: number
@@ -147,6 +146,50 @@ function App(): JSX.Element {
   useEffect(() => {
     aiRunRef.current = aiRun
   }, [aiRun])
+
+  useEffect(() => {
+    const handleWindowMouseMove = (event: MouseEvent): void => {
+      const panState = panStateRef.current
+      const surface = readerSurfaceRef.current
+
+      if (!panState || !surface) {
+        return
+      }
+
+      event.preventDefault()
+      const deltaX = event.clientX - panState.startX
+      const deltaY = event.clientY - panState.startY
+
+      if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
+        suppressSelectionRef.current = true
+      }
+
+      surface.scrollLeft = panState.scrollLeft - deltaX
+      surface.scrollTop = panState.scrollTop - deltaY
+    }
+
+    const handleWindowMouseUp = (event: MouseEvent): void => {
+      if (!panStateRef.current) {
+        return
+      }
+
+      event.preventDefault()
+      panStateRef.current = null
+      setIsPanning(false)
+
+      window.setTimeout(() => {
+        suppressSelectionRef.current = false
+      }, 0)
+    }
+
+    window.addEventListener('mousemove', handleWindowMouseMove)
+    window.addEventListener('mouseup', handleWindowMouseUp)
+
+    return () => {
+      window.removeEventListener('mousemove', handleWindowMouseMove)
+      window.removeEventListener('mouseup', handleWindowMouseUp)
+    }
+  }, [])
 
   useEffect(() => {
     return () => {
@@ -485,16 +528,12 @@ function App(): JSX.Element {
     zoomBy(event.deltaY < 0 ? scaleStep : -scaleStep)
   }
 
-  const stopReaderPan = (event?: PointerEvent<HTMLDivElement>): void => {
-    if (event && panStateRef.current) {
-      event.currentTarget.releasePointerCapture(panStateRef.current.pointerId)
-    }
-
+  const stopReaderPan = (): void => {
     panStateRef.current = null
     setIsPanning(false)
   }
 
-  const handleReaderPointerDown = (event: PointerEvent<HTMLDivElement>): void => {
+  const handleReaderMouseDown = (event: ReactMouseEvent<HTMLDivElement>): void => {
     if (!activeDocument) {
       return
     }
@@ -506,9 +545,7 @@ function App(): JSX.Element {
     }
 
     event.preventDefault()
-    event.currentTarget.setPointerCapture(event.pointerId)
     panStateRef.current = {
-      pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
       scrollLeft: event.currentTarget.scrollLeft,
@@ -517,23 +554,6 @@ function App(): JSX.Element {
     suppressSelectionRef.current = true
     setSelection(null)
     setIsPanning(true)
-  }
-
-  const handleReaderPointerMove = (event: PointerEvent<HTMLDivElement>): void => {
-    const panState = panStateRef.current
-
-    if (!panState) {
-      return
-    }
-
-    event.preventDefault()
-    const surface = event.currentTarget
-    surface.scrollLeft = panState.scrollLeft - (event.clientX - panState.startX)
-    surface.scrollTop = panState.scrollTop - (event.clientY - panState.startY)
-  }
-
-  const handleReaderPointerUp = (event: PointerEvent<HTMLDivElement>): void => {
-    stopReaderPan(event)
   }
 
   const updateProvider = async (provider: AIProviderRecord, enabled: boolean): Promise<void> => {
@@ -700,57 +720,59 @@ function App(): JSX.Element {
           }}
           onMouseUp={() => {
             if (suppressSelectionRef.current) {
-              suppressSelectionRef.current = false
               return
             }
 
             captureSelection()
           }}
-          onPointerCancel={handleReaderPointerUp}
-          onPointerDown={handleReaderPointerDown}
-          onPointerLeave={() => stopReaderPan()}
-          onPointerMove={handleReaderPointerMove}
-          onPointerUp={handleReaderPointerUp}
+          onMouseDown={handleReaderMouseDown}
+          onMouseLeave={() => {
+            if (!isPanning) {
+              stopReaderPan()
+            }
+          }}
           onWheel={handleReaderWheel}
         >
           {pdfFile ? (
-            <Document
-              file={pdfFile}
-              error={
-                <div className="empty-state error-state">
-                  <FileText size={44} />
-                  <h2>PDF 打开失败</h2>
-                  <p>{pdfError ?? 'PDF.js 无法加载这个文件。'}</p>
+            <div className="pdf-stage">
+              <Document
+                file={pdfFile}
+                error={
+                  <div className="empty-state error-state">
+                    <FileText size={44} />
+                    <h2>PDF 打开失败</h2>
+                    <p>{pdfError ?? 'PDF.js 无法加载这个文件。'}</p>
+                  </div>
+                }
+                loading={<div className="empty-state">正在解析 PDF...</div>}
+                onLoadError={(error) => {
+                  setPdfError(error.message)
+                  setStatus(`PDF 打开失败：${error.message}`)
+                }}
+                onLoadSuccess={({ numPages }) => {
+                  setPdfError(null)
+                  setPageCount(numPages)
+                  setStatus(`共 ${numPages} 页`)
+                }}
+                onSourceError={(error) => {
+                  setPdfError(error.message)
+                  setStatus(`PDF 来源读取失败：${error.message}`)
+                }}
+              >
+                <div className="pdf-page-frame">
+                  <Page
+                    pageNumber={pageNumber}
+                    renderAnnotationLayer
+                    renderTextLayer
+                    scale={scale}
+                    onLoadError={(error) => {
+                      setPdfError(error.message)
+                      setStatus(`PDF 页面渲染失败：${error.message}`)
+                    }}
+                  />
                 </div>
-              }
-              loading={<div className="empty-state">正在解析 PDF...</div>}
-              onLoadError={(error) => {
-                setPdfError(error.message)
-                setStatus(`PDF 打开失败：${error.message}`)
-              }}
-              onLoadSuccess={({ numPages }) => {
-                setPdfError(null)
-                setPageCount(numPages)
-                setStatus(`共 ${numPages} 页`)
-              }}
-              onSourceError={(error) => {
-                setPdfError(error.message)
-                setStatus(`PDF 来源读取失败：${error.message}`)
-              }}
-            >
-              <div className="pdf-page-frame">
-                <Page
-                  pageNumber={pageNumber}
-                  renderAnnotationLayer
-                  renderTextLayer
-                  scale={scale}
-                  onLoadError={(error) => {
-                    setPdfError(error.message)
-                    setStatus(`PDF 页面渲染失败：${error.message}`)
-                  }}
-                />
-              </div>
-            </Document>
+              </Document>
+            </div>
           ) : (
             <div className="empty-state">
               <FileText size={44} />
