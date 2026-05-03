@@ -1,7 +1,11 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { runOpenAICompatibleCompletion } from './ai'
+import {
+  ChatMessage,
+  runOpenAICompatibleChatCompletion,
+  runOpenAICompatibleCompletion
+} from './ai'
 import { ReadingPartnerDatabase } from './database'
 import { parseDictionaryCsv } from './dictionaryImport'
 import { KeyStore } from './keyStore'
@@ -12,6 +16,7 @@ import {
   AskDocumentQuestionInput,
   CreateAnnotationInput,
   CreateVocabularyInput,
+  RunAIChatInput,
   RunAIActionInput,
   UpdateVocabularyDefinitionInput,
   UpsertAIProviderInput
@@ -238,6 +243,18 @@ const registerIpc = (): void => {
     )
   )
 
+  ipcMain.handle('ai:conversations', (_event, documentId: string) =>
+    database.listAIConversations(documentId)
+  )
+
+  ipcMain.handle('ai:createConversation', (_event, documentId: string, title?: string | null) =>
+    database.createAIConversation({ documentId, title })
+  )
+
+  ipcMain.handle('ai:chatMessages', (_event, conversationId: string) =>
+    database.listAIChatMessages(conversationId)
+  )
+
   ipcMain.handle('ai:runAction', async (event, input: RunAIActionInput) => {
     const provider = database.getAIProvider(input.providerId)
     const apiKey = keyStore.get(provider.apiKeyRef)
@@ -307,6 +324,101 @@ const registerIpc = (): void => {
             outputMarkdown: output,
             pageNumber: input.pageNumber
           })
+      })
+    } catch (error) {
+      sendEvent({
+        requestId: input.requestId,
+        type: 'error',
+        message: error instanceof Error ? error.message : String(error)
+      })
+    }
+  })
+
+  ipcMain.handle('ai:runChat', async (event, input: RunAIChatInput) => {
+    const conversation = database.getAIConversation(input.conversationId)
+
+    if (conversation.documentId !== input.documentId) {
+      throw new Error('AI conversation does not belong to the active document.')
+    }
+
+    const provider = database.getAIProvider(input.providerId)
+    const apiKey = keyStore.get(provider.apiKeyRef)
+    const selectedText = input.selectedText?.trim() || null
+    database.createAIChatMessage({
+      conversationId: input.conversationId,
+      role: 'user',
+      content: input.message,
+      selectedText,
+      pageNumber: input.pageNumber
+    })
+
+    const context = database.getRelevantDocumentChunks(
+      input.documentId,
+      selectedText ? `${input.message} ${selectedText}` : input.message,
+      input.pageNumber,
+      5
+    )
+    const recentMessages = database.getRecentAIChatMessages(input.conversationId, 12)
+    const contextMessage = context.length
+      ? context
+          .map(
+            (chunk, index) =>
+              `[${index + 1}] 第 ${chunk.pageNumber} 页，片段 ${chunk.chunkIndex + 1}\n${chunk.text}`
+          )
+          .join('\n\n')
+      : '没有可用的文档片段。'
+    const messages: ChatMessage[] = [
+      {
+        role: 'system',
+        content:
+          '你是 Reading Partner，一个和用户一起阅读 PDF 文献的中文共读伙伴。结合对话历史、用户当前选区和文档片段回答。回答要具体、克制；引用文档内容时标注“第 X 页”；信息不足时直接说明缺口。'
+      },
+      {
+        role: 'user',
+        content: `本轮可用文档片段：\n${contextMessage}`
+      },
+      ...recentMessages.map<ChatMessage>((message) => ({
+        role: message.role,
+        content:
+          message.role === 'user' && message.selectedText
+            ? `${message.content}\n\n用户当时选中的原文（第 ${message.pageNumber ?? input.pageNumber} 页）：\n${message.selectedText}`
+            : message.content
+      }))
+    ]
+    const sendEvent = (payload: AIStreamEvent): void => {
+      event.sender.send('ai:streamEvent', payload)
+    }
+
+    try {
+      await runOpenAICompatibleChatCompletion({
+        requestId: input.requestId,
+        provider,
+        apiKey,
+        messages,
+        onEvent: sendEvent,
+        saveArtifact: (output) => {
+          const artifact = database.createAIArtifact({
+            documentId: input.documentId,
+            providerId: provider.id,
+            model: provider.defaultModel,
+            promptType: 'chat_document',
+            inputText: input.message,
+            outputMarkdown: output,
+            pageNumber: input.pageNumber
+          })
+
+          database.createAIChatMessage({
+            conversationId: input.conversationId,
+            role: 'assistant',
+            content: output,
+            pageNumber: input.pageNumber,
+            providerId: provider.id,
+            model: provider.defaultModel,
+            artifactId: artifact.id
+          })
+
+          return artifact
+        }
       })
     } catch (error) {
       sendEvent({

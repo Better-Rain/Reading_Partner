@@ -102,6 +102,35 @@ Saved AI outputs.
 | page_number | integer nullable | Source page. |
 | created_at | text | ISO timestamp. |
 
+### ai_conversations
+
+Persistent co-reading chat sessions scoped to one document.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| id | text primary key | UUID. |
+| document_id | text | FK to documents. |
+| title | text | Display title, initially `共读对话`. |
+| created_at | text | ISO timestamp. |
+| updated_at | text | ISO timestamp, refreshed when chat messages are added. |
+
+### ai_chat_messages
+
+Messages inside a co-reading conversation.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| id | text primary key | UUID. |
+| conversation_id | text | FK to ai_conversations. |
+| role | text | `user` or `assistant`. |
+| content | text | Message body. |
+| selected_text | text nullable | Optional PDF selection attached to a user message. |
+| page_number | integer nullable | Active page when the message was sent. |
+| provider_id | text nullable | Provider used for assistant messages. |
+| model | text nullable | Model used for assistant messages. |
+| artifact_id | text nullable | FK to saved AI artifact when applicable. |
+| created_at | text | ISO timestamp. |
+
 ### vocabulary
 
 English reading support.

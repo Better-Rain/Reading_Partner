@@ -27,6 +27,8 @@ import {
   Upload
 } from 'lucide-react'
 import {
+  AIChatMessageRecord,
+  AIConversationRecord,
   AIProviderRecord,
   AIPromptType,
   AIStreamEvent,
@@ -56,7 +58,8 @@ type AIRunState = {
   output: string
   status: 'idle' | 'running' | 'done' | 'error'
   error: string | null
-  source: 'selection' | 'vocabulary' | 'document_qa'
+  source: 'selection' | 'vocabulary' | 'document_qa' | 'chat'
+  conversationId?: string
   vocabularyId?: string
 }
 
@@ -65,7 +68,8 @@ const promptLabels: Record<AIPromptType, string> = {
   explain_selection: '解释',
   summarize_selection: '总结',
   define_vocabulary: '词汇释义',
-  ask_document: '文档问答'
+  ask_document: '文档问答',
+  chat_document: '共读对话'
 }
 
 const makeDefinitionFromDictionary = (entry: NonNullable<Awaited<ReturnType<typeof window.readingPartner.lookupDictionary>>['entry']>): string => {
@@ -138,6 +142,10 @@ function App(): JSX.Element {
   const [isPanning, setIsPanning] = useState(false)
   const [draftNote, setDraftNote] = useState('')
   const [qaQuestion, setQaQuestion] = useState('')
+  const [aiConversations, setAiConversations] = useState<AIConversationRecord[]>([])
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
+  const [chatMessages, setChatMessages] = useState<AIChatMessageRecord[]>([])
+  const [chatDraft, setChatDraft] = useState('')
   const [status, setStatus] = useState('打开一本 PDF 开始阅读')
   const [aiRun, setAiRun] = useState<AIRunState | null>(null)
   const aiRunRef = useRef<AIRunState | null>(null)
@@ -160,6 +168,11 @@ function App(): JSX.Element {
   const readyProvider = useMemo(
     () => providers.find((provider) => provider.enabled && configuredProviderIds.has(provider.id)) ?? null,
     [configuredProviderIds, providers]
+  )
+
+  const activeConversation = useMemo(
+    () => aiConversations.find((conversation) => conversation.id === activeConversationId) ?? null,
+    [activeConversationId, aiConversations]
   )
 
   useEffect(() => {
@@ -265,6 +278,39 @@ function App(): JSX.Element {
     setIsSearching(false)
   }
 
+  const refreshAIConversations = async (documentId: string): Promise<void> => {
+    const conversations = await window.readingPartner.listAIConversations(documentId)
+    setAiConversations(conversations)
+
+    const nextActive = conversations[0] ?? null
+    setActiveConversationId(nextActive?.id ?? null)
+    setChatMessages(
+      nextActive ? await window.readingPartner.listAIChatMessages(nextActive.id) : []
+    )
+  }
+
+  const selectAIConversation = async (conversationId: string): Promise<void> => {
+    setActiveConversationId(conversationId)
+    setChatMessages(await window.readingPartner.listAIChatMessages(conversationId))
+  }
+
+  const createAIConversation = async (): Promise<AIConversationRecord | null> => {
+    if (!activeDocument) {
+      return null
+    }
+
+    const conversation = await window.readingPartner.createAIConversation(
+      activeDocument.id,
+      '共读对话'
+    )
+    setAiConversations((items) => [conversation, ...items])
+    setActiveConversationId(conversation.id)
+    setChatMessages([])
+    setStatus('已创建共读对话')
+
+    return conversation
+  }
+
   const searchDocument = async (query = searchQuery): Promise<void> => {
     if (!activeDocument) {
       return
@@ -353,6 +399,22 @@ function App(): JSX.Element {
 
     const currentRun = aiRunRef.current
 
+    if (currentRun?.source === 'chat' && currentRun.conversationId) {
+      const [messages, conversations] = await Promise.all([
+        window.readingPartner.listAIChatMessages(currentRun.conversationId),
+        window.readingPartner.listAIConversations(event.artifact.documentId)
+      ])
+      setChatMessages(messages)
+      setAiConversations(conversations)
+      setAiRun((current) =>
+        current && current.requestId === event.requestId
+          ? { ...current, status: 'done', output: event.artifact.outputMarkdown }
+          : current
+      )
+      setStatus('共读对话已更新')
+      return
+    }
+
     if (currentRun?.source === 'vocabulary' && currentRun.vocabularyId) {
       const updated = await window.readingPartner.updateVocabularyDefinition({
         id: currentRun.vocabularyId,
@@ -395,7 +457,13 @@ function App(): JSX.Element {
     setPageNumber(1)
     setSelection(null)
     clearSearch()
-    await Promise.all([refreshAnnotations(document.id), refreshVocabulary(document.id)])
+    setQaQuestion('')
+    setChatDraft('')
+    await Promise.all([
+      refreshAnnotations(document.id),
+      refreshVocabulary(document.id),
+      refreshAIConversations(document.id)
+    ])
     setStatus(`已打开 ${document.title}`)
   }
 
@@ -418,10 +486,13 @@ function App(): JSX.Element {
     setPageNumber(1)
     setSelection(null)
     clearSearch()
+    setQaQuestion('')
+    setChatDraft('')
     await Promise.all([
       refreshLibrary(),
       refreshAnnotations(result.document.id),
-      refreshVocabulary(result.document.id)
+      refreshVocabulary(result.document.id),
+      refreshAIConversations(result.document.id)
     ])
     setStatus(`已导入 ${result.document.title}`)
   }
@@ -544,6 +615,73 @@ function App(): JSX.Element {
       documentId: activeDocument.id,
       pageNumber,
       question: trimmed
+    })
+  }
+
+  const sendChatMessage = async (message: string): Promise<void> => {
+    if (!activeDocument) {
+      return
+    }
+
+    const trimmed = message.trim()
+
+    if (!trimmed) {
+      return
+    }
+
+    if (!readyProvider) {
+      setActiveTab('settings')
+      setStatus('请先在配置面板为至少一个启用的 Provider 保存 API Key')
+      return
+    }
+
+    const conversation = activeConversation ?? (await createAIConversation())
+
+    if (!conversation) {
+      return
+    }
+
+    const selectedText = selection?.text ?? null
+    const requestId = crypto.randomUUID()
+    const optimisticMessage: AIChatMessageRecord = {
+      id: `pending:${requestId}`,
+      conversationId: conversation.id,
+      role: 'user',
+      content: trimmed,
+      selectedText,
+      pageNumber,
+      providerId: null,
+      model: null,
+      artifactId: null,
+      createdAt: new Date().toISOString()
+    }
+
+    setChatMessages((items) => [...items, optimisticMessage])
+    setChatDraft('')
+    setAiRun({
+      requestId,
+      promptType: 'chat_document',
+      inputText: trimmed,
+      providerLabel: readyProvider.label,
+      model: readyProvider.defaultModel,
+      output: '',
+      status: 'running',
+      error: null,
+      source: 'chat',
+      conversationId: conversation.id
+    })
+    setActiveTab('ai')
+    setSelection(null)
+    setStatus(`正在使用 ${readyProvider.label} 继续共读对话`)
+
+    await window.readingPartner.runAIChat({
+      requestId,
+      providerId: readyProvider.id,
+      conversationId: conversation.id,
+      documentId: activeDocument.id,
+      pageNumber,
+      message: trimmed,
+      selectedText
     })
   }
 
@@ -1035,11 +1173,19 @@ function App(): JSX.Element {
         {activeTab === 'ai' && (
           <AiPanel
             aiRun={aiRun}
+            chatDraft={chatDraft}
+            chatMessages={chatMessages}
+            conversations={aiConversations}
             hasDocument={Boolean(activeDocument)}
             question={qaQuestion}
             readyProvider={readyProvider}
             selection={selection?.text ?? null}
+            activeConversationId={activeConversationId}
             onAskDocument={(question) => void askDocumentQuestion(question)}
+            onChatDraftChange={setChatDraft}
+            onCreateConversation={() => void createAIConversation()}
+            onSendChat={(message) => void sendChatMessage(message)}
+            onSelectConversation={(conversationId) => void selectAIConversation(conversationId)}
             onQuestionChange={setQaQuestion}
             onRun={(promptType) => void runAIAction(promptType)}
           />
@@ -1242,28 +1388,47 @@ function NotesPanel({
 }
 
 type AiPanelProps = {
+  activeConversationId: string | null
   aiRun: AIRunState | null
+  chatDraft: string
+  chatMessages: AIChatMessageRecord[]
+  conversations: AIConversationRecord[]
   hasDocument: boolean
   question: string
   readyProvider: AIProviderRecord | null
   selection: string | null
   onAskDocument: (question: string) => void
+  onChatDraftChange: (value: string) => void
+  onCreateConversation: () => void
   onQuestionChange: (value: string) => void
   onRun: (promptType: AIPromptType) => void
+  onSelectConversation: (conversationId: string) => void
+  onSendChat: (message: string) => void
 }
 
 function AiPanel({
+  activeConversationId,
   aiRun,
+  chatDraft,
+  chatMessages,
+  conversations,
   hasDocument,
   question,
   readyProvider,
   selection,
   onAskDocument,
+  onChatDraftChange,
+  onCreateConversation,
   onQuestionChange,
-  onRun
+  onRun,
+  onSelectConversation,
+  onSendChat
 }: AiPanelProps): JSX.Element {
   const canAskDocument =
     hasDocument && Boolean(readyProvider) && question.trim().length > 0 && aiRun?.status !== 'running'
+  const canSendChat =
+    hasDocument && Boolean(readyProvider) && chatDraft.trim().length > 0 && aiRun?.status !== 'running'
+  const activeChatRunning = aiRun?.source === 'chat' && aiRun.status === 'running'
 
   return (
     <div className="inspector-content">
@@ -1278,6 +1443,68 @@ function AiPanel({
           </p>
         </div>
       </div>
+
+      <section className="chat-panel">
+        <div className="chat-toolbar">
+          <select
+            disabled={!hasDocument || conversations.length === 0}
+            value={activeConversationId ?? ''}
+            onChange={(event) => onSelectConversation(event.target.value)}
+          >
+            {conversations.length === 0 ? (
+              <option value="">暂无对话</option>
+            ) : (
+              conversations.map((conversation) => (
+                <option key={conversation.id} value={conversation.id}>
+                  {conversation.title}
+                </option>
+              ))
+            )}
+          </select>
+          <button disabled={!hasDocument} onClick={onCreateConversation}>
+            新对话
+          </button>
+        </div>
+
+        <div className="chat-message-list">
+          {chatMessages.length === 0 ? (
+            <p className="muted">开始一段可以连续追问的共读对话。选中文本后发送，会把选区一起作为本轮上下文。</p>
+          ) : (
+            chatMessages.map((message) => (
+              <article className={`chat-message ${message.role}`} key={message.id}>
+                <strong>{message.role === 'user' ? '你' : 'Reading Partner'}</strong>
+                {message.selectedText && <blockquote>{message.selectedText}</blockquote>}
+                <p>{message.content}</p>
+              </article>
+            ))
+          )}
+          {activeChatRunning && (
+            <article className="chat-message assistant">
+              <strong>Reading Partner</strong>
+              <p>{aiRun.output || '正在思考...'}</p>
+            </article>
+          )}
+        </div>
+
+        <form
+          className="chat-composer"
+          onSubmit={(event) => {
+            event.preventDefault()
+            onSendChat(chatDraft)
+          }}
+        >
+          <textarea
+            disabled={!hasDocument}
+            placeholder={selection ? '结合当前选区继续追问...' : '继续和文档对话...'}
+            value={chatDraft}
+            onChange={(event) => onChatDraftChange(event.target.value)}
+          />
+          <button disabled={!canSendChat} type="submit">
+            <Send size={16} />
+            发送
+          </button>
+        </form>
+      </section>
 
       <form
         className="document-qa"
@@ -1316,7 +1543,7 @@ function AiPanel({
         <span className="prompt-status">{aiRun?.output ? '已自动保存' : '输出会自动保存'}</span>
       </div>
 
-      {aiRun && (
+      {aiRun && aiRun.source !== 'chat' && (
         <div className="ai-output">
           <div className="ai-output-heading">
             <strong>{promptLabels[aiRun.promptType]}</strong>

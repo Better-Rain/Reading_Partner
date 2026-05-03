@@ -6,8 +6,8 @@ import {
   RunAIActionInput
 } from '../shared/types'
 
-type ChatMessage = {
-  role: 'system' | 'user'
+export type ChatMessage = {
+  role: 'system' | 'user' | 'assistant'
   content: string
 }
 
@@ -24,7 +24,8 @@ const promptLabels: Record<AIPromptType, string> = {
   explain_selection: 'explain',
   summarize_selection: 'summarize',
   define_vocabulary: 'define vocabulary',
-  ask_document: 'ask document'
+  ask_document: 'ask document',
+  chat_document: 'chat document'
 }
 
 const buildMessages = (input: RunAIActionInput): ChatMessage[] => {
@@ -141,18 +142,21 @@ const parseSseLine = (line: string): string | null => {
   return trimmed.slice(5).trim()
 }
 
-export async function runOpenAICompatibleCompletion({
-  input,
-  provider,
-  apiKey,
-  onEvent,
-  saveArtifact
-}: AICompletionOptions): Promise<void> {
+async function streamOpenAICompatibleCompletion(options: {
+  requestId: string
+  provider: AIProviderRecord
+  apiKey: string
+  messages: ChatMessage[]
+  temperature?: number
+  onEvent: (event: AIStreamEvent) => void
+  saveArtifact: (output: string) => AIArtifactRecord
+}): Promise<void> {
+  const { requestId, provider, apiKey, messages, onEvent, saveArtifact } = options
   const model = provider.defaultModel
   let output = ''
 
   onEvent({
-    requestId: input.requestId,
+    requestId,
     type: 'start',
     providerId: provider.id,
     model
@@ -166,9 +170,9 @@ export async function runOpenAICompatibleCompletion({
     },
     body: JSON.stringify({
       model,
-      messages: buildMessages(input),
+      messages,
       stream: true,
-      temperature: 0.2
+      temperature: options.temperature ?? 0.2
     })
   })
 
@@ -210,7 +214,7 @@ export async function runOpenAICompatibleCompletion({
       if (delta) {
         output += delta
         onEvent({
-          requestId: input.requestId,
+          requestId,
           type: 'delta',
           text: delta
         })
@@ -221,9 +225,41 @@ export async function runOpenAICompatibleCompletion({
   const artifact = saveArtifact(output.trim())
 
   onEvent({
-    requestId: input.requestId,
+    requestId,
     type: 'done',
     artifact
+  })
+}
+
+export async function runOpenAICompatibleCompletion({
+  input,
+  provider,
+  apiKey,
+  onEvent,
+  saveArtifact
+}: AICompletionOptions): Promise<void> {
+  await streamOpenAICompatibleCompletion({
+    requestId: input.requestId,
+    provider,
+    apiKey,
+    messages: buildMessages(input),
+    temperature: 0.2,
+    onEvent,
+    saveArtifact
+  })
+}
+
+export async function runOpenAICompatibleChatCompletion(options: {
+  requestId: string
+  provider: AIProviderRecord
+  apiKey: string
+  messages: ChatMessage[]
+  onEvent: (event: AIStreamEvent) => void
+  saveArtifact: (output: string) => AIArtifactRecord
+}): Promise<void> {
+  await streamOpenAICompatibleCompletion({
+    ...options,
+    temperature: 0.25
   })
 }
 

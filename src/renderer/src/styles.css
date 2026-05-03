@@ -449,7 +449,8 @@ button:disabled {
 .note-composer,
 .vocab-composer,
 .search-form,
-.document-qa {
+.document-qa,
+.chat-composer {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -460,7 +461,9 @@ button:disabled {
 .vocab-composer textarea,
 .vocab-composer input,
 .search-form input,
-.document-qa textarea {
+.document-qa textarea,
+.chat-composer textarea,
+.chat-toolbar select {
   width: 100%;
   border: 1px solid #d6deeb;
   border-radius: 8px;
@@ -471,7 +474,8 @@ button:disabled {
 
 .note-composer textarea,
 .vocab-composer textarea,
-.document-qa textarea {
+.document-qa textarea,
+.chat-composer textarea {
   min-height: 92px;
   resize: vertical;
   padding: 10px;
@@ -490,7 +494,9 @@ button:disabled {
 
 .vocab-composer button,
 .search-form button,
-.document-qa button {
+.document-qa button,
+.chat-composer button,
+.chat-toolbar button {
   display: inline-flex;
   min-height: 36px;
   align-items: center;
@@ -595,7 +601,8 @@ button:disabled {
 .vocabulary-item,
 .provider-item,
 .selected-preview,
-.ai-ready {
+.ai-ready,
+.chat-panel {
   border: 1px solid #dde3ed;
   border-radius: 8px;
   background: #fff;
@@ -729,6 +736,71 @@ button:disabled {
 
 .document-qa {
   margin-bottom: 12px;
+}
+
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.chat-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.chat-toolbar select {
+  height: 36px;
+  padding: 0 10px;
+}
+
+.chat-message-list {
+  display: flex;
+  max-height: 280px;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.chat-message {
+  border-radius: 8px;
+  background: #f3f6fb;
+  padding: 10px;
+}
+
+.chat-message.user {
+  background: #eaf2ff;
+}
+
+.chat-message strong {
+  color: #1f2937;
+  font-size: 13px;
+}
+
+.chat-message p {
+  margin: 6px 0 0;
+  color: #263447;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.chat-message blockquote {
+  margin: 8px 0 0;
+  border-left: 3px solid #9db7dc;
+  color: #4a5668;
+  padding-left: 10px;
+  line-height: 1.5;
+}
+
+.chat-composer {
+  margin-bottom: 0;
+}
+
+.chat-composer textarea {
+  min-height: 76px;
 }
 
 .ai-ready p,

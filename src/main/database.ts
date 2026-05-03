@@ -6,6 +6,9 @@ import { dirname } from 'node:path'
 import {
   AIProviderRecord,
   AIArtifactRecord,
+  AIChatMessageRecord,
+  AIChatMessageRole,
+  AIConversationRecord,
   AIPromptType,
   AnnotationRecord,
   CreateAnnotationInput,
@@ -71,6 +74,27 @@ type AIArtifactRow = {
   input_text: string
   output_markdown: string
   page_number: number | null
+  created_at: string
+}
+
+type AIConversationRow = {
+  id: string
+  document_id: string
+  title: string
+  created_at: string
+  updated_at: string
+}
+
+type AIChatMessageRow = {
+  id: string
+  conversation_id: string
+  role: AIChatMessageRole
+  content: string
+  selected_text: string | null
+  page_number: number | null
+  provider_id: string | null
+  model: string | null
+  artifact_id: string | null
   created_at: string
 }
 
@@ -176,6 +200,27 @@ const toAIArtifact = (row: AIArtifactRow): AIArtifactRecord => ({
   inputText: row.input_text,
   outputMarkdown: row.output_markdown,
   pageNumber: row.page_number,
+  createdAt: row.created_at
+})
+
+const toAIConversation = (row: AIConversationRow): AIConversationRecord => ({
+  id: row.id,
+  documentId: row.document_id,
+  title: row.title,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at
+})
+
+const toAIChatMessage = (row: AIChatMessageRow): AIChatMessageRecord => ({
+  id: row.id,
+  conversationId: row.conversation_id,
+  role: row.role,
+  content: row.content,
+  selectedText: row.selected_text,
+  pageNumber: row.page_number,
+  providerId: row.provider_id,
+  model: row.model,
+  artifactId: row.artifact_id,
   createdAt: row.created_at
 })
 
@@ -940,6 +985,130 @@ export class ReadingPartnerDatabase {
     return toAIArtifact(row)
   }
 
+  listAIConversations(documentId: string): AIConversationRecord[] {
+    this.getDocument(documentId)
+    const rows = this.query<AIConversationRow>(
+      `select * from ai_conversations
+       where document_id = ?
+       order by updated_at desc`,
+      [documentId]
+    )
+
+    return rows.map(toAIConversation)
+  }
+
+  createAIConversation(input: { documentId: string; title?: string | null }): AIConversationRecord {
+    this.getDocument(input.documentId)
+    const id = randomUUID()
+    const timestamp = now()
+    const title = input.title?.trim() || '共读对话'
+
+    this.db.run(
+      `insert into ai_conversations (
+        id, document_id, title, created_at, updated_at
+      ) values (?, ?, ?, ?, ?)`,
+      [id, input.documentId, title, timestamp, timestamp]
+    )
+    this.persist()
+
+    const row = this.get<AIConversationRow>('select * from ai_conversations where id = ?', [id])
+    if (!row) {
+      throw new Error(`AI conversation not found after insert: ${id}`)
+    }
+
+    return toAIConversation(row)
+  }
+
+  getAIConversation(id: string): AIConversationRecord {
+    const row = this.get<AIConversationRow>('select * from ai_conversations where id = ?', [id])
+
+    if (!row) {
+      throw new Error(`AI conversation not found: ${id}`)
+    }
+
+    return toAIConversation(row)
+  }
+
+  listAIChatMessages(conversationId: string): AIChatMessageRecord[] {
+    this.getAIConversation(conversationId)
+    const rows = this.query<AIChatMessageRow>(
+      `select * from ai_chat_messages
+       where conversation_id = ?
+       order by created_at asc`,
+      [conversationId]
+    )
+
+    return rows.map(toAIChatMessage)
+  }
+
+  getRecentAIChatMessages(conversationId: string, limit = 10): AIChatMessageRecord[] {
+    this.getAIConversation(conversationId)
+    const rows = this.query<AIChatMessageRow>(
+      `select * from (
+         select * from ai_chat_messages
+         where conversation_id = ?
+         order by created_at desc
+         limit ?
+       )
+       order by created_at asc`,
+      [conversationId, limit]
+    )
+
+    return rows.map(toAIChatMessage)
+  }
+
+  createAIChatMessage(input: {
+    conversationId: string
+    role: AIChatMessageRole
+    content: string
+    selectedText?: string | null
+    pageNumber?: number | null
+    providerId?: string | null
+    model?: string | null
+    artifactId?: string | null
+  }): AIChatMessageRecord {
+    const conversation = this.getAIConversation(input.conversationId)
+    const content = input.content.trim()
+
+    if (!content) {
+      throw new Error('AI chat message cannot be empty.')
+    }
+
+    const id = randomUUID()
+    const timestamp = now()
+
+    this.db.run(
+      `insert into ai_chat_messages (
+        id, conversation_id, role, content, selected_text, page_number,
+        provider_id, model, artifact_id, created_at
+      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        input.conversationId,
+        input.role,
+        content,
+        input.selectedText ?? null,
+        input.pageNumber ?? null,
+        input.providerId ?? null,
+        input.model ?? null,
+        input.artifactId ?? null,
+        timestamp
+      ]
+    )
+    this.db.run('update ai_conversations set updated_at = ? where id = ?', [
+      timestamp,
+      conversation.id
+    ])
+    this.persist()
+
+    const row = this.get<AIChatMessageRow>('select * from ai_chat_messages where id = ?', [id])
+    if (!row) {
+      throw new Error(`AI chat message not found after insert: ${id}`)
+    }
+
+    return toAIChatMessage(row)
+  }
+
   private migrate(): void {
     this.db.exec(`
       create table if not exists documents (
@@ -1017,6 +1186,33 @@ export class ReadingPartnerDatabase {
         page_number integer,
         created_at text not null
       );
+
+      create table if not exists ai_conversations (
+        id text primary key,
+        document_id text not null references documents(id) on delete cascade,
+        title text not null,
+        created_at text not null,
+        updated_at text not null
+      );
+
+      create index if not exists idx_ai_conversations_document_updated
+        on ai_conversations(document_id, updated_at);
+
+      create table if not exists ai_chat_messages (
+        id text primary key,
+        conversation_id text not null references ai_conversations(id) on delete cascade,
+        role text not null check(role in ('user', 'assistant')),
+        content text not null,
+        selected_text text,
+        page_number integer,
+        provider_id text,
+        model text,
+        artifact_id text references ai_artifacts(id) on delete set null,
+        created_at text not null
+      );
+
+      create index if not exists idx_ai_chat_messages_conversation_created
+        on ai_chat_messages(conversation_id, created_at);
 
       create table if not exists vocabulary (
         id text primary key,

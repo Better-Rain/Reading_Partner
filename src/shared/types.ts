@@ -5,6 +5,7 @@ export type AIPromptType =
   | 'summarize_selection'
   | 'define_vocabulary'
   | 'ask_document'
+  | 'chat_document'
 
 export type DocumentRecord = {
   id: string
@@ -91,6 +92,29 @@ export type AIArtifactRecord = {
   inputText: string
   outputMarkdown: string
   pageNumber: number | null
+  createdAt: string
+}
+
+export type AIConversationRecord = {
+  id: string
+  documentId: string
+  title: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type AIChatMessageRole = 'user' | 'assistant'
+
+export type AIChatMessageRecord = {
+  id: string
+  conversationId: string
+  role: AIChatMessageRole
+  content: string
+  selectedText: string | null
+  pageNumber: number | null
+  providerId: string | null
+  model: string | null
+  artifactId: string | null
   createdAt: string
 }
 
@@ -189,6 +213,16 @@ export type AskDocumentQuestionInput = {
   question: string
 }
 
+export type RunAIChatInput = {
+  requestId: string
+  providerId: string
+  conversationId: string
+  documentId: string
+  pageNumber: number
+  message: string
+  selectedText?: string | null
+}
+
 export type AIStreamEvent =
   | {
       requestId: string
@@ -238,5 +272,12 @@ export type ReadingPartnerApi = {
   listAIProviderKeyStatus: () => Promise<ProviderKeyStatus[]>
   runAIAction: (input: RunAIActionInput) => Promise<void>
   askDocumentQuestion: (input: AskDocumentQuestionInput) => Promise<void>
+  listAIConversations: (documentId: string) => Promise<AIConversationRecord[]>
+  createAIConversation: (
+    documentId: string,
+    title?: string | null
+  ) => Promise<AIConversationRecord>
+  listAIChatMessages: (conversationId: string) => Promise<AIChatMessageRecord[]>
+  runAIChat: (input: RunAIChatInput) => Promise<void>
   onAIStreamEvent: (callback: (event: AIStreamEvent) => void) => () => void
 }

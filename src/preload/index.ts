@@ -5,6 +5,7 @@ import {
   CreateAnnotationInput,
   CreateVocabularyInput,
   ReadingPartnerApi,
+  RunAIChatInput,
   RunAIActionInput,
   UpdateVocabularyDefinitionInput,
   UpsertAIProviderInput
@@ -43,6 +44,12 @@ const api: ReadingPartnerApi = {
   runAIAction: (input: RunAIActionInput) => ipcRenderer.invoke('ai:runAction', input),
   askDocumentQuestion: (input: AskDocumentQuestionInput) =>
     ipcRenderer.invoke('ai:askDocument', input),
+  listAIConversations: (documentId: string) => ipcRenderer.invoke('ai:conversations', documentId),
+  createAIConversation: (documentId: string, title?: string | null) =>
+    ipcRenderer.invoke('ai:createConversation', documentId, title),
+  listAIChatMessages: (conversationId: string) =>
+    ipcRenderer.invoke('ai:chatMessages', conversationId),
+  runAIChat: (input: RunAIChatInput) => ipcRenderer.invoke('ai:runChat', input),
   onAIStreamEvent: (callback: (event: AIStreamEvent) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: AIStreamEvent): void => {
       callback(payload)
