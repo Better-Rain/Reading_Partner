@@ -4,6 +4,7 @@ export type AIPromptType =
   | 'explain_selection'
   | 'summarize_selection'
   | 'define_vocabulary'
+  | 'ask_document'
 
 export type DocumentRecord = {
   id: string
@@ -33,6 +34,15 @@ export type DocumentSearchResult = {
   pageNumber: number
   chunkIndex: number
   snippet: string
+  score: number
+}
+
+export type DocumentQuestionContext = {
+  id: string
+  documentId: string
+  pageNumber: number
+  chunkIndex: number
+  text: string
   score: number
 }
 
@@ -168,6 +178,15 @@ export type RunAIActionInput = {
   pageNumber: number
   promptType: AIPromptType
   selectedText: string
+  context?: DocumentQuestionContext[]
+}
+
+export type AskDocumentQuestionInput = {
+  requestId: string
+  providerId: string
+  documentId: string
+  pageNumber: number
+  question: string
 }
 
 export type AIStreamEvent =
@@ -218,5 +237,6 @@ export type ReadingPartnerApi = {
   clearAIProviderApiKey: (providerId: string) => Promise<AIProviderRecord>
   listAIProviderKeyStatus: () => Promise<ProviderKeyStatus[]>
   runAIAction: (input: RunAIActionInput) => Promise<void>
+  askDocumentQuestion: (input: AskDocumentQuestionInput) => Promise<void>
   onAIStreamEvent: (callback: (event: AIStreamEvent) => void) => () => void
 }

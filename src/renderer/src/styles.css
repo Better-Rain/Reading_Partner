@@ -429,9 +429,27 @@ button:disabled {
   padding: 16px;
 }
 
+.notes-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.notes-panel .note-composer {
+  flex: 0 0 auto;
+}
+
+.notes-panel .annotation-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
 .note-composer,
 .vocab-composer,
-.search-form {
+.search-form,
+.document-qa {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -441,7 +459,8 @@ button:disabled {
 .note-composer textarea,
 .vocab-composer textarea,
 .vocab-composer input,
-.search-form input {
+.search-form input,
+.document-qa textarea {
   width: 100%;
   border: 1px solid #d6deeb;
   border-radius: 8px;
@@ -451,7 +470,8 @@ button:disabled {
 }
 
 .note-composer textarea,
-.vocab-composer textarea {
+.vocab-composer textarea,
+.document-qa textarea {
   min-height: 92px;
   resize: vertical;
   padding: 10px;
@@ -469,7 +489,8 @@ button:disabled {
 }
 
 .vocab-composer button,
-.search-form button {
+.search-form button,
+.document-qa button {
   display: inline-flex;
   min-height: 36px;
   align-items: center;
@@ -511,6 +532,17 @@ button:disabled {
   background: #e8edf5;
   color: #263447;
   cursor: pointer;
+  font-weight: 700;
+}
+
+.prompt-status {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: #f0f3f8;
+  color: #687487;
   font-weight: 700;
 }
 
@@ -577,7 +609,54 @@ button:disabled {
   text-transform: uppercase;
 }
 
-.annotation-item blockquote {
+.annotation-summary {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+
+.annotation-summary-main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.annotation-summary-main strong {
+  color: #1f2937;
+  font-size: 13px;
+  text-transform: uppercase;
+}
+
+.annotation-summary-main span {
+  overflow: hidden;
+  color: #506072;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.annotation-summary-meta {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  color: #6d7787;
+  font-size: 12px;
+}
+
+.annotation-detail {
+  margin-top: 10px;
+}
+
+.annotation-detail blockquote {
   margin: 10px 0;
   border-left: 3px solid #f0c949;
   color: #2f3b4b;
@@ -585,10 +664,15 @@ button:disabled {
   line-height: 1.55;
 }
 
-.annotation-item p {
+.annotation-detail p {
   margin: 8px 0 0;
   color: #344256;
   line-height: 1.55;
+}
+
+.annotation-actions {
+  display: flex;
+  gap: 12px;
 }
 
 .vocabulary-heading {
@@ -633,9 +717,17 @@ button:disabled {
   padding: 0;
 }
 
+.text-button.neutral {
+  color: #1d4f91;
+}
+
 .ai-ready {
   display: flex;
   gap: 12px;
+  margin-bottom: 12px;
+}
+
+.document-qa {
   margin-bottom: 12px;
 }
 

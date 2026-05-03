@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import {
   AIStreamEvent,
+  AskDocumentQuestionInput,
   CreateAnnotationInput,
   CreateVocabularyInput,
   ReadingPartnerApi,
@@ -40,6 +41,8 @@ const api: ReadingPartnerApi = {
     ipcRenderer.invoke('aiProviders:clearApiKey', providerId),
   listAIProviderKeyStatus: () => ipcRenderer.invoke('aiProviders:keyStatus'),
   runAIAction: (input: RunAIActionInput) => ipcRenderer.invoke('ai:runAction', input),
+  askDocumentQuestion: (input: AskDocumentQuestionInput) =>
+    ipcRenderer.invoke('ai:askDocument', input),
   onAIStreamEvent: (callback: (event: AIStreamEvent) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: AIStreamEvent): void => {
       callback(payload)

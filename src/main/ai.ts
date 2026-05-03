@@ -23,12 +23,37 @@ const promptLabels: Record<AIPromptType, string> = {
   translate_selection: 'translate',
   explain_selection: 'explain',
   summarize_selection: 'summarize',
-  define_vocabulary: 'define vocabulary'
+  define_vocabulary: 'define vocabulary',
+  ask_document: 'ask document'
 }
 
-const buildMessages = (promptType: AIPromptType, selectedText: string): ChatMessage[] => {
+const buildMessages = (input: RunAIActionInput): ChatMessage[] => {
+  const { promptType, selectedText } = input
   const baseSystem =
     'You are Reading Partner, an AI assistant embedded in a PDF reading app. Answer in concise Chinese unless the user-selected text requires preserving English terms. Keep citations or original terms when useful.'
+
+  if (promptType === 'ask_document') {
+    const context = input.context?.length
+      ? input.context
+          .map(
+            (chunk, index) =>
+              `[${index + 1}] Page ${chunk.pageNumber}, chunk ${chunk.chunkIndex + 1}\n${chunk.text}`
+          )
+          .join('\n\n')
+      : 'No document excerpts were available.'
+
+    return [
+      {
+        role: 'system',
+        content:
+          `${baseSystem} Answer the user's question using only the provided document excerpts. Cite page numbers in Chinese with the format “第 X 页”. If the excerpts are insufficient, say what is missing instead of guessing.`
+      },
+      {
+        role: 'user',
+        content: `Question:\n${selectedText}\n\nDocument excerpts:\n${context}`
+      }
+    ]
+  }
 
   if (promptType === 'translate_selection') {
     return [
@@ -141,7 +166,7 @@ export async function runOpenAICompatibleCompletion({
     },
     body: JSON.stringify({
       model,
-      messages: buildMessages(input.promptType, input.selectedText),
+      messages: buildMessages(input),
       stream: true,
       temperature: 0.2
     })

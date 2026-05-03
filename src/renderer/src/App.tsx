@@ -6,8 +6,10 @@ import {
   Bookmark,
   BookMarked,
   Bot,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   FileText,
   Highlighter,
   Hand,
@@ -17,6 +19,7 @@ import {
   Minus,
   Plus,
   Search,
+  Send,
   Settings,
   Sparkles,
   StickyNote,
@@ -53,7 +56,7 @@ type AIRunState = {
   output: string
   status: 'idle' | 'running' | 'done' | 'error'
   error: string | null
-  source: 'selection' | 'vocabulary'
+  source: 'selection' | 'vocabulary' | 'document_qa'
   vocabularyId?: string
 }
 
@@ -61,7 +64,8 @@ const promptLabels: Record<AIPromptType, string> = {
   translate_selection: '翻译',
   explain_selection: '解释',
   summarize_selection: '总结',
-  define_vocabulary: '词汇释义'
+  define_vocabulary: '词汇释义',
+  ask_document: '文档问答'
 }
 
 const makeDefinitionFromDictionary = (entry: NonNullable<Awaited<ReturnType<typeof window.readingPartner.lookupDictionary>>['entry']>): string => {
@@ -133,6 +137,7 @@ function App(): JSX.Element {
   const [isPanMode, setIsPanMode] = useState(false)
   const [isPanning, setIsPanning] = useState(false)
   const [draftNote, setDraftNote] = useState('')
+  const [qaQuestion, setQaQuestion] = useState('')
   const [status, setStatus] = useState('打开一本 PDF 开始阅读')
   const [aiRun, setAiRun] = useState<AIRunState | null>(null)
   const aiRunRef = useRef<AIRunState | null>(null)
@@ -498,6 +503,47 @@ function App(): JSX.Element {
       pageNumber,
       promptType,
       selectedText: text
+    })
+  }
+
+  const askDocumentQuestion = async (question: string): Promise<void> => {
+    if (!activeDocument) {
+      return
+    }
+
+    const trimmed = question.trim()
+
+    if (!trimmed) {
+      return
+    }
+
+    if (!readyProvider) {
+      setActiveTab('settings')
+      setStatus('请先在配置面板为至少一个启用的 Provider 保存 API Key')
+      return
+    }
+
+    const requestId = crypto.randomUUID()
+    setAiRun({
+      requestId,
+      promptType: 'ask_document',
+      inputText: trimmed,
+      providerLabel: readyProvider.label,
+      model: readyProvider.defaultModel,
+      output: '',
+      status: 'running',
+      error: null,
+      source: 'document_qa'
+    })
+    setActiveTab('ai')
+    setStatus(`正在使用 ${readyProvider.label} 回答文档问题`)
+
+    await window.readingPartner.askDocumentQuestion({
+      requestId,
+      providerId: readyProvider.id,
+      documentId: activeDocument.id,
+      pageNumber,
+      question: trimmed
     })
   }
 
@@ -963,6 +1009,10 @@ function App(): JSX.Element {
             onBookmark={() => void createAnnotation('bookmark')}
             onDelete={(id) => void deleteAnnotation(id)}
             onDraftNoteChange={setDraftNote}
+            onJump={(annotation) => {
+              setPageNumber(annotation.pageNumber)
+              setStatus(`已跳转到第 ${annotation.pageNumber} 页`)
+            }}
             onSaveNote={() => void createAnnotation('note', draftNote || '空白页边注')}
           />
         )}
@@ -985,8 +1035,12 @@ function App(): JSX.Element {
         {activeTab === 'ai' && (
           <AiPanel
             aiRun={aiRun}
+            hasDocument={Boolean(activeDocument)}
+            question={qaQuestion}
             readyProvider={readyProvider}
             selection={selection?.text ?? null}
+            onAskDocument={(question) => void askDocumentQuestion(question)}
+            onQuestionChange={setQaQuestion}
             onRun={(promptType) => void runAIAction(promptType)}
           />
         )}
@@ -1024,6 +1078,7 @@ type NotesPanelProps = {
   onBookmark: () => void
   onDelete: (id: string) => void
   onDraftNoteChange: (value: string) => void
+  onJump: (annotation: AnnotationRecord) => void
   onSaveNote: () => void
 }
 
@@ -1097,10 +1152,27 @@ function NotesPanel({
   onBookmark,
   onDelete,
   onDraftNoteChange,
+  onJump,
   onSaveNote
 }: NotesPanelProps): JSX.Element {
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set())
+
+  const toggleExpanded = (id: string): void => {
+    setExpandedIds((current) => {
+      const next = new Set(current)
+
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+
+      return next
+    })
+  }
+
   return (
-    <div className="inspector-content">
+    <div className="inspector-content notes-panel">
       <div className="note-composer">
         <textarea
           disabled={!hasDocument}
@@ -1124,20 +1196,45 @@ function NotesPanel({
         {annotations.length === 0 ? (
           <p className="muted">高亮、批注和书签会出现在这里。</p>
         ) : (
-          annotations.map((annotation) => (
-            <article className="annotation-item" key={annotation.id}>
-              <div className="annotation-meta">
-                <span>{annotation.type}</span>
-                <span>第 {annotation.pageNumber} 页</span>
-              </div>
-              {annotation.selectedText && <blockquote>{annotation.selectedText}</blockquote>}
-              {annotation.note && <p>{annotation.note}</p>}
-              <button className="text-button" onClick={() => onDelete(annotation.id)}>
-                <Trash2 size={14} />
-                删除
-              </button>
-            </article>
-          ))
+          annotations.map((annotation) => {
+            const expanded = expandedIds.has(annotation.id)
+            const preview = annotation.note ?? annotation.selectedText ?? '书签'
+
+            return (
+              <article className="annotation-item" key={annotation.id}>
+                <button
+                  className="annotation-summary"
+                  onClick={() => toggleExpanded(annotation.id)}
+                >
+                  <span className="annotation-summary-main">
+                    <strong>{annotation.type}</strong>
+                    <span>{preview}</span>
+                  </span>
+                  <span className="annotation-summary-meta">
+                    第 {annotation.pageNumber} 页
+                    {expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                  </span>
+                </button>
+
+                {expanded && (
+                  <div className="annotation-detail">
+                    {annotation.selectedText && <blockquote>{annotation.selectedText}</blockquote>}
+                    {annotation.note && <p>{annotation.note}</p>}
+                    <div className="annotation-actions">
+                      <button className="text-button neutral" onClick={() => onJump(annotation)}>
+                        <FileText size={14} />
+                        跳转
+                      </button>
+                      <button className="text-button" onClick={() => onDelete(annotation.id)}>
+                        <Trash2 size={14} />
+                        删除
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </article>
+            )
+          })
         )}
       </div>
     </div>
@@ -1146,12 +1243,28 @@ function NotesPanel({
 
 type AiPanelProps = {
   aiRun: AIRunState | null
+  hasDocument: boolean
+  question: string
   readyProvider: AIProviderRecord | null
   selection: string | null
+  onAskDocument: (question: string) => void
+  onQuestionChange: (value: string) => void
   onRun: (promptType: AIPromptType) => void
 }
 
-function AiPanel({ aiRun, readyProvider, selection, onRun }: AiPanelProps): JSX.Element {
+function AiPanel({
+  aiRun,
+  hasDocument,
+  question,
+  readyProvider,
+  selection,
+  onAskDocument,
+  onQuestionChange,
+  onRun
+}: AiPanelProps): JSX.Element {
+  const canAskDocument =
+    hasDocument && Boolean(readyProvider) && question.trim().length > 0 && aiRun?.status !== 'running'
+
   return (
     <div className="inspector-content">
       <div className="ai-ready">
@@ -1165,6 +1278,25 @@ function AiPanel({ aiRun, readyProvider, selection, onRun }: AiPanelProps): JSX.
           </p>
         </div>
       </div>
+
+      <form
+        className="document-qa"
+        onSubmit={(event) => {
+          event.preventDefault()
+          onAskDocument(question)
+        }}
+      >
+        <textarea
+          disabled={!hasDocument}
+          placeholder="向当前文档提问..."
+          value={question}
+          onChange={(event) => onQuestionChange(event.target.value)}
+        />
+        <button disabled={!canAskDocument} type="submit">
+          <Send size={16} />
+          提问
+        </button>
+      </form>
 
       <div className="selected-preview">
         <strong>当前选区</strong>
@@ -1181,7 +1313,7 @@ function AiPanel({ aiRun, readyProvider, selection, onRun }: AiPanelProps): JSX.
         <button disabled={!selection || !readyProvider} onClick={() => onRun('summarize_selection')}>
           总结段落
         </button>
-        <button disabled={!aiRun?.output}>已保存为笔记</button>
+        <span className="prompt-status">{aiRun?.output ? '已自动保存' : '输出会自动保存'}</span>
       </div>
 
       {aiRun && (

@@ -9,6 +9,7 @@ import { extractPdfText } from './pdfText'
 import { resolveStarDictIfoPath, StarDictSource } from './stardict'
 import {
   AIStreamEvent,
+  AskDocumentQuestionInput,
   CreateAnnotationInput,
   CreateVocabularyInput,
   RunAIActionInput,
@@ -257,6 +258,52 @@ const registerIpc = (): void => {
             model: provider.defaultModel,
             promptType: input.promptType,
             inputText: input.selectedText,
+            outputMarkdown: output,
+            pageNumber: input.pageNumber
+          })
+      })
+    } catch (error) {
+      sendEvent({
+        requestId: input.requestId,
+        type: 'error',
+        message: error instanceof Error ? error.message : String(error)
+      })
+    }
+  })
+
+  ipcMain.handle('ai:askDocument', async (event, input: AskDocumentQuestionInput) => {
+    const provider = database.getAIProvider(input.providerId)
+    const apiKey = keyStore.get(provider.apiKeyRef)
+    const context = database.getRelevantDocumentChunks(
+      input.documentId,
+      input.question,
+      input.pageNumber
+    )
+    const sendEvent = (payload: AIStreamEvent): void => {
+      event.sender.send('ai:streamEvent', payload)
+    }
+
+    try {
+      await runOpenAICompatibleCompletion({
+        input: {
+          requestId: input.requestId,
+          providerId: input.providerId,
+          documentId: input.documentId,
+          pageNumber: input.pageNumber,
+          promptType: 'ask_document',
+          selectedText: input.question,
+          context
+        },
+        provider,
+        apiKey,
+        onEvent: sendEvent,
+        saveArtifact: (output) =>
+          database.createAIArtifact({
+            documentId: input.documentId,
+            providerId: provider.id,
+            model: provider.defaultModel,
+            promptType: 'ask_document',
+            inputText: input.question,
             outputMarkdown: output,
             pageNumber: input.pageNumber
           })

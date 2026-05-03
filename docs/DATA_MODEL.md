@@ -67,6 +67,7 @@ Current behavior:
 
 - The right-side Search tab queries these chunks locally with app-level keyword matching.
 - Search results return the source page, chunk id, snippet, and a simple occurrence score.
+- First-version document Q&A retrieves a small set of matching chunks from this table, falls back to the current page area when needed, and asks the configured AI provider to cite page numbers.
 
 ### ai_providers
 
@@ -125,6 +126,7 @@ Current behavior:
 
 - SQLite FTS5 search over extracted PDF chunks.
 - Vector index over chunks through `sqlite-vec` or LanceDB.
+- Saved Q&A sessions with explicit source chunk references.
 - Unique index for vocabulary words normalized by lowercase lemma.
 
 ### dictionary_entries

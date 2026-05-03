@@ -12,6 +12,7 @@ import {
   CreateVocabularyInput,
   DictionaryEntryRecord,
   DictionarySourceRecord,
+  DocumentQuestionContext,
   DocumentSearchResult,
   DocumentTextIndexResult,
   DocumentTextIndexStatus,
@@ -210,17 +211,49 @@ const toDictionarySource = (row: DictionarySourceRow): DictionarySourceRecord =>
 })
 
 const normalizeDictionaryWord = (word: string): string => word.trim().toLocaleLowerCase()
+const questionStopWords = new Set([
+  'a',
+  'an',
+  'and',
+  'are',
+  'as',
+  'at',
+  'be',
+  'by',
+  'for',
+  'from',
+  'how',
+  'in',
+  'is',
+  'it',
+  'of',
+  'on',
+  'or',
+  'the',
+  'this',
+  'to',
+  'what',
+  'which',
+  'why',
+  'with'
+])
 const normalizeSearchQuery = (query: string): string[] =>
   Array.from(
     new Set(
       query
         .trim()
         .toLocaleLowerCase()
+        .replace(/[^\p{L}\p{N}]+/gu, ' ')
         .split(/\s+/)
         .map((term) => term.trim())
         .filter((term) => term.length > 0)
     )
   ).slice(0, 8)
+
+const normalizeQuestionQuery = (query: string): string[] =>
+  normalizeSearchQuery(query)
+    .filter((term) => term.length > 1 && !questionStopWords.has(term))
+    .slice(0, 10)
 
 const escapeLikeTerm = (term: string): string =>
   term.replace(/[\\%_]/g, (match) => `\\${match}`)
@@ -462,6 +495,92 @@ export class ReadingPartnerDatabase {
       })
       .sort((left, right) => right.score - left.score || left.pageNumber - right.pageNumber)
       .slice(0, limit)
+  }
+
+  getRelevantDocumentChunks(
+    documentId: string,
+    query: string,
+    pageNumber: number | null,
+    limit = 6
+  ): DocumentQuestionContext[] {
+    this.getDocument(documentId)
+    const terms = normalizeQuestionQuery(query)
+    const maxRows = Math.max(limit * 8, 48)
+
+    if (terms.length > 0) {
+      const whereTerms = terms.map(() => "lower(text) like ? escape '\\'").join(' or ')
+      const rows = this.query<DocumentChunkRow>(
+        `select id, document_id, page_number, chunk_index, text
+         from document_chunks
+         where document_id = ? and (${whereTerms})
+         order by page_number asc, chunk_index asc
+         limit ?`,
+        [
+          documentId,
+          ...terms.map((term) => `%${escapeLikeTerm(term)}%`),
+          Math.min(maxRows, 240)
+        ]
+      )
+
+      const scored = rows
+        .map((row) => {
+          const lower = row.text.toLocaleLowerCase()
+          const score = terms.reduce((total, term) => total + countOccurrences(lower, term), 0)
+
+          return {
+            id: row.id,
+            documentId: row.document_id,
+            pageNumber: row.page_number,
+            chunkIndex: row.chunk_index,
+            text: row.text,
+            score
+          }
+        })
+        .sort((left, right) => right.score - left.score || left.pageNumber - right.pageNumber)
+        .slice(0, limit)
+
+      if (scored.length > 0) {
+        return scored
+      }
+    }
+
+    if (pageNumber && Number.isFinite(pageNumber)) {
+      const rows = this.query<DocumentChunkRow>(
+        `select id, document_id, page_number, chunk_index, text
+         from document_chunks
+         where document_id = ? and page_number between ? and ?
+         order by page_number asc, chunk_index asc
+         limit ?`,
+        [documentId, Math.max(1, pageNumber - 1), pageNumber + 1, limit]
+      )
+
+      if (rows.length > 0) {
+        return rows.map((row) => ({
+          id: row.id,
+          documentId: row.document_id,
+          pageNumber: row.page_number,
+          chunkIndex: row.chunk_index,
+          text: row.text,
+          score: 0
+        }))
+      }
+    }
+
+    return this.query<DocumentChunkRow>(
+      `select id, document_id, page_number, chunk_index, text
+       from document_chunks
+       where document_id = ?
+       order by page_number asc, chunk_index asc
+       limit ?`,
+      [documentId, limit]
+    ).map((row) => ({
+      id: row.id,
+      documentId: row.document_id,
+      pageNumber: row.page_number,
+      chunkIndex: row.chunk_index,
+      text: row.text,
+      score: 0
+    }))
   }
 
   listAnnotations(documentId: string): AnnotationRecord[] {

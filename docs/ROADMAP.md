@@ -113,13 +113,14 @@ Implemented:
 - Split extracted text into paragraph-aware chunks.
 - Cache text indexes locally and skip repeat extraction after all pages are processed.
 - Search the active document locally from the right-side Search tab and jump to matched pages.
+- Ask first-version document questions from the AI tab using locally retrieved text chunks with page citations.
 
 Goals:
 
 - Extract PDF text into page and paragraph chunks.
 - Upgrade keyword search to SQLite FTS5 full-text search.
 - Add embeddings and vector retrieval.
-- Ask questions across a document with page citations.
+- Improve questions across a document with better retrieval, saved Q&A browsing, and stronger citation controls.
 
 Important rule:
 
