@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { runOpenAICompatibleCompletion } from './ai'
 import { ReadingPartnerDatabase } from './database'
+import { parseDictionaryCsv } from './dictionaryImport'
 import { KeyStore } from './keyStore'
 import {
   AIStreamEvent,
@@ -98,6 +99,36 @@ const registerIpc = (): void => {
 
   ipcMain.handle('vocabulary:delete', (_event, id: string) => {
     database.deleteVocabulary(id)
+  })
+
+  ipcMain.handle('dictionary:lookup', (_event, query: string) => ({
+    query,
+    entry: database.lookupDictionary(query)
+  }))
+
+  ipcMain.handle('dictionary:importCsvDialog', async () => {
+    const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
+      title: 'Import Dictionary CSV',
+      properties: ['openFile'],
+      filters: [
+        { name: 'CSV Dictionary', extensions: ['csv'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    })
+
+    if (result.canceled || !result.filePaths[0]) {
+      return null
+    }
+
+    const sourcePath = result.filePaths[0]
+    const content = await readFile(sourcePath, 'utf8')
+    const entries = parseDictionaryCsv(content, sourcePath)
+    const imported = database.importDictionaryEntries(entries)
+
+    return {
+      ...imported,
+      sourcePath
+    }
   })
 
   ipcMain.handle('aiProviders:list', () => database.listAIProviders())

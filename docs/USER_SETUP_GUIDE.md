@@ -158,3 +158,27 @@ secrets.json
 
 `secrets.json` contains encrypted API keys. Do not commit it to Git.
 
+## 7. Import a Local English-Chinese Dictionary
+
+The app can import a CSV dictionary file for local lookup before spending model tokens. The intended source is ECDICT's `stardict.csv`.
+
+Recommended workflow:
+
+1. Download or clone ECDICT on your machine.
+2. Locate `stardict.csv`.
+3. Open Reading Partner.
+4. Go to the right-side `词汇` tab.
+5. Click `导入词典 CSV`.
+6. Select `stardict.csv`.
+7. Wait for the status line to show the imported count.
+
+After import:
+
+- Selecting a word or phrase and clicking `生词` first searches the local dictionary.
+- If a match is found, the vocabulary entry is saved with the local translation and definition.
+- If no match is found, the entry is saved as `待补充释义`; you can then click `AI 释义`.
+
+Supported CSV shapes:
+
+- ECDICT-like column order: `word, phonetic, definition, translation, pos, ... exchange ...`.
+- Header-based CSVs with fields such as `word`, `phonetic`, `definition`, `translation`, `pos`, and `exchange`.

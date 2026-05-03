@@ -85,6 +85,7 @@ Implemented:
 - Manual vocabulary entry for the active PDF.
 - Add selected PDF text to the vocabulary book with source page and source sentence.
 - AI-assisted vocabulary definition refinement and write-back.
+- CSV dictionary import and exact local lookup before creating vocabulary entries.
 
 Goals:
 
@@ -100,7 +101,6 @@ Recommended source:
 Remaining work:
 
 - Import ECDICT into a local lookup table.
-- Prefer local dictionary lookup before AI calls.
 - Add export support for vocabulary and review cards.
 
 ## Phase 4: Search and RAG

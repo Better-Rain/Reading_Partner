@@ -10,6 +10,7 @@ import {
   AnnotationRecord,
   CreateAnnotationInput,
   CreateVocabularyInput,
+  DictionaryEntryRecord,
   DocumentRecord,
   UpdateVocabularyDefinitionInput,
   UpsertAIProviderInput,
@@ -77,6 +78,29 @@ type VocabularyRow = {
   created_at: string
 }
 
+type DictionaryEntryInput = {
+  word: string
+  phonetic?: string | null
+  definition?: string | null
+  translation?: string | null
+  pos?: string | null
+  exchange?: string | null
+  source: string
+}
+
+type DictionaryEntryRow = {
+  id: string
+  word: string
+  normalized_word: string
+  phonetic: string | null
+  definition: string | null
+  translation: string | null
+  pos: string | null
+  exchange: string | null
+  source: string
+  updated_at: string
+}
+
 const toDocument = (row: DocumentRow): DocumentRecord => ({
   id: row.id,
   title: row.title,
@@ -134,6 +158,20 @@ const toVocabulary = (row: VocabularyRow): VocabularyRecord => ({
   pageNumber: row.page_number,
   createdAt: row.created_at
 })
+
+const toDictionaryEntry = (row: DictionaryEntryRow): DictionaryEntryRecord => ({
+  id: row.id,
+  word: row.word,
+  phonetic: row.phonetic,
+  definition: row.definition,
+  translation: row.translation,
+  pos: row.pos,
+  exchange: row.exchange,
+  source: row.source,
+  updatedAt: row.updated_at
+})
+
+const normalizeDictionaryWord = (word: string): string => word.trim().toLocaleLowerCase()
 
 export class ReadingPartnerDatabase {
   private constructor(
@@ -326,6 +364,80 @@ export class ReadingPartnerDatabase {
     this.persist()
   }
 
+  lookupDictionary(query: string): DictionaryEntryRecord | null {
+    const normalized = normalizeDictionaryWord(query)
+
+    if (!normalized) {
+      return null
+    }
+
+    const row = this.get<DictionaryEntryRow>(
+      'select * from dictionary_entries where normalized_word = ? limit 1',
+      [normalized]
+    )
+
+    return row ? toDictionaryEntry(row) : null
+  }
+
+  importDictionaryEntries(entries: DictionaryEntryInput[]): { imported: number; skipped: number } {
+    let imported = 0
+    let skipped = 0
+    const timestamp = now()
+    const statement = this.db.prepare(
+      `insert into dictionary_entries (
+        id, word, normalized_word, phonetic, definition, translation, pos, exchange, source, updated_at
+      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      on conflict(normalized_word) do update set
+        word = excluded.word,
+        phonetic = excluded.phonetic,
+        definition = excluded.definition,
+        translation = excluded.translation,
+        pos = excluded.pos,
+        exchange = excluded.exchange,
+        source = excluded.source,
+        updated_at = excluded.updated_at`
+    )
+
+    this.db.run('begin transaction')
+
+    try {
+      for (const entry of entries) {
+        const word = entry.word.trim()
+        const normalized = normalizeDictionaryWord(word)
+
+        if (!word || !normalized) {
+          skipped += 1
+          continue
+        }
+
+        statement.run([
+          randomUUID(),
+          word,
+          normalized,
+          entry.phonetic?.trim() || null,
+          entry.definition?.trim() || null,
+          entry.translation?.trim() || null,
+          entry.pos?.trim() || null,
+          entry.exchange?.trim() || null,
+          entry.source,
+          timestamp
+        ])
+        imported += 1
+      }
+
+      this.db.run('commit')
+    } catch (error) {
+      this.db.run('rollback')
+      throw error
+    } finally {
+      statement.free()
+    }
+
+    this.persist()
+
+    return { imported, skipped }
+  }
+
   listAIProviders(): AIProviderRecord[] {
     const rows = this.query<AIProviderRow>(
       'select * from ai_providers order by enabled desc, label asc'
@@ -502,6 +614,22 @@ export class ReadingPartnerDatabase {
 
       create index if not exists idx_vocabulary_document_created
         on vocabulary(document_id, created_at);
+
+      create table if not exists dictionary_entries (
+        id text primary key,
+        word text not null,
+        normalized_word text not null unique,
+        phonetic text,
+        definition text,
+        translation text,
+        pos text,
+        exchange text,
+        source text not null,
+        updated_at text not null
+      );
+
+      create index if not exists idx_dictionary_entries_word
+        on dictionary_entries(normalized_word);
     `)
   }
 

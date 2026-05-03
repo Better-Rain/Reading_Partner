@@ -447,6 +447,11 @@ button:disabled {
   font-weight: 700;
 }
 
+.vocab-composer .secondary-action {
+  background: #fff;
+  border: 1px solid #d6deeb;
+}
+
 .note-actions,
 .prompt-grid {
   display: grid;

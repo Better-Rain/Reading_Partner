@@ -93,3 +93,20 @@ Current behavior:
 - SQLite FTS5 over extracted PDF chunks.
 - Vector index over chunks through `sqlite-vec` or LanceDB.
 - Unique index for vocabulary words normalized by lowercase lemma.
+
+### dictionary_entries
+
+Imported local dictionary entries.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| id | text primary key | UUID. |
+| word | text | Original headword. |
+| normalized_word | text unique | Lowercase lookup key. |
+| phonetic | text nullable | Pronunciation or phonetic data. |
+| definition | text nullable | English definition. |
+| translation | text nullable | Chinese translation. |
+| pos | text nullable | Part of speech. |
+| exchange | text nullable | Inflection/exchange data. |
+| source | text | Imported file path or source label. |
+| updated_at | text | ISO timestamp. |

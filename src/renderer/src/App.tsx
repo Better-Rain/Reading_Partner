@@ -61,6 +61,18 @@ const promptLabels: Record<AIPromptType, string> = {
   define_vocabulary: '词汇释义'
 }
 
+const makeDefinitionFromDictionary = (entry: NonNullable<Awaited<ReturnType<typeof window.readingPartner.lookupDictionary>>['entry']>): string => {
+  const lines = [
+    entry.translation ? `释义：${entry.translation}` : null,
+    entry.definition ? `英文释义：${entry.definition}` : null,
+    entry.phonetic ? `音标：${entry.phonetic}` : null,
+    entry.pos ? `词性：${entry.pos}` : null,
+    entry.exchange ? `词形：${entry.exchange}` : null
+  ].filter(Boolean)
+
+  return lines.join('\n') || '待补充释义'
+}
+
 const minScale = 0.75
 const maxScale = 3
 const scaleStep = 0.12
@@ -423,10 +435,12 @@ function App(): JSX.Element {
 
     try {
       const word = selection.text.replace(/\s+/g, ' ').trim()
+      const lookup = await window.readingPartner.lookupDictionary(word)
+      const definition = lookup.entry ? makeDefinitionFromDictionary(lookup.entry) : '待补充释义'
       const created = await window.readingPartner.createVocabulary({
         documentId: activeDocument.id,
         word,
-        definition: '待补充释义',
+        definition,
         sourceSentence: selection.text,
         pageNumber
       })
@@ -434,7 +448,7 @@ function App(): JSX.Element {
       setVocabulary((items) => [created, ...items])
       setSelection(null)
       setActiveTab('vocab')
-      setStatus('已加入词汇本')
+      setStatus(lookup.entry ? '已用本地词典释义加入词汇本' : '已加入词汇本，未命中本地词典')
     } catch (error) {
       setStatus(`加入词汇本失败：${error instanceof Error ? error.message : String(error)}`)
     }
@@ -457,6 +471,20 @@ function App(): JSX.Element {
       setStatus('已保存词汇')
     } catch (error) {
       setStatus(`保存词汇失败：${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  const importDictionary = async (): Promise<void> => {
+    try {
+      const result = await window.readingPartner.importDictionaryCsvDialog()
+
+      if (!result) {
+        return
+      }
+
+      setStatus(`词典导入完成：${result.imported} 条，跳过 ${result.skipped} 条`)
+    } catch (error) {
+      setStatus(`词典导入失败：${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
@@ -869,6 +897,7 @@ function App(): JSX.Element {
             onCreate={(word, definition) => void createVocabulary(word, definition)}
             onDefine={(item) => void defineVocabularyWithAI(item)}
             onDelete={(id) => void deleteVocabulary(id)}
+            onImportDictionary={() => void importDictionary()}
           />
         )}
 
@@ -1009,6 +1038,7 @@ type VocabularyPanelProps = {
   onCreate: (word: string, definition: string) => void
   onDefine: (item: VocabularyRecord) => void
   onDelete: (id: string) => void
+  onImportDictionary: () => void
 }
 
 function VocabularyPanel({
@@ -1016,7 +1046,8 @@ function VocabularyPanel({
   vocabulary,
   onCreate,
   onDefine,
-  onDelete
+  onDelete,
+  onImportDictionary
 }: VocabularyPanelProps): JSX.Element {
   const [word, setWord] = useState('')
   const [definition, setDefinition] = useState('')
@@ -1037,6 +1068,10 @@ function VocabularyPanel({
   return (
     <div className="inspector-content">
       <div className="vocab-composer">
+        <button className="secondary-action" onClick={onImportDictionary}>
+          <Upload size={16} />
+          导入词典 CSV
+        </button>
         <input
           disabled={!hasDocument}
           placeholder="单词或短语"

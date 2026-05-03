@@ -86,6 +86,29 @@ export type UpdateVocabularyDefinitionInput = {
   definition: string
 }
 
+export type DictionaryEntryRecord = {
+  id: string
+  word: string
+  phonetic: string | null
+  definition: string | null
+  translation: string | null
+  pos: string | null
+  exchange: string | null
+  source: string
+  updatedAt: string
+}
+
+export type DictionaryLookupResult = {
+  query: string
+  entry: DictionaryEntryRecord | null
+}
+
+export type ImportDictionaryResult = {
+  imported: number
+  skipped: number
+  sourcePath: string
+}
+
 export type UpsertAIProviderInput = {
   id: string
   label: string
@@ -152,6 +175,8 @@ export type ReadingPartnerApi = {
     input: UpdateVocabularyDefinitionInput
   ) => Promise<VocabularyRecord>
   deleteVocabulary: (id: string) => Promise<void>
+  lookupDictionary: (query: string) => Promise<DictionaryLookupResult>
+  importDictionaryCsvDialog: () => Promise<ImportDictionaryResult | null>
   listAIProviders: () => Promise<AIProviderRecord[]>
   upsertAIProvider: (input: UpsertAIProviderInput) => Promise<AIProviderRecord>
   setAIProviderApiKey: (providerId: string, apiKey: string) => Promise<AIProviderRecord>
