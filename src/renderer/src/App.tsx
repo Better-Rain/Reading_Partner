@@ -105,6 +105,63 @@ const clampScale = (value: number): number =>
 
 const roundRectValue = (value: number): number => Number(value.toFixed(2))
 
+const rectArea = (rect: AnnotationRect): number => rect.width * rect.height
+
+const rectOverlapArea = (first: AnnotationRect, second: AnnotationRect): number => {
+  const left = Math.max(first.left, second.left)
+  const top = Math.max(first.top, second.top)
+  const right = Math.min(first.left + first.width, second.left + second.width)
+  const bottom = Math.min(first.top + first.height, second.top + second.height)
+
+  return Math.max(0, right - left) * Math.max(0, bottom - top)
+}
+
+const normalizeAnnotationRects = (rects: AnnotationRect[]): AnnotationRect[] => {
+  const sorted = [...rects].sort((first, second) => {
+    const topDelta = first.top - second.top
+
+    if (Math.abs(topDelta) > 1) {
+      return topDelta
+    }
+
+    const areaDelta = rectArea(second) - rectArea(first)
+
+    if (Math.abs(areaDelta) > 1) {
+      return areaDelta
+    }
+
+    return first.left - second.left
+  })
+
+  return sorted.filter((rect, index) => {
+    const area = rectArea(rect)
+
+    if (area <= 0) {
+      return false
+    }
+
+    return !sorted.some((candidate, candidateIndex) => {
+      if (candidateIndex === index) {
+        return false
+      }
+
+      const candidateArea = rectArea(candidate)
+
+      if (candidateArea < area) {
+        return false
+      }
+
+      if (Math.abs(candidateArea - area) <= 0.5 && candidateIndex > index) {
+        return false
+      }
+
+      const overlap = rectOverlapArea(rect, candidate)
+
+      return overlap / area >= 0.82
+    })
+  })
+}
+
 const parseAnnotationRects = (rectsJson: string | null): AnnotationRect[] => {
   if (!rectsJson) {
     return []
@@ -117,7 +174,7 @@ const parseAnnotationRects = (rectsJson: string | null): AnnotationRect[] => {
       return []
     }
 
-    return parsed
+    const rects = parsed
       .map((item) => {
         if (!item || typeof item !== 'object') {
           return null
@@ -136,6 +193,8 @@ const parseAnnotationRects = (rectsJson: string | null): AnnotationRect[] => {
         return { left, top, width, height }
       })
       .filter((item): item is AnnotationRect => Boolean(item))
+
+    return normalizeAnnotationRects(rects)
   } catch {
     return []
   }
@@ -807,7 +866,7 @@ function App(): JSX.Element {
     const rect = range?.getBoundingClientRect()
     const pageElement = readerSurfaceRef.current?.querySelector<HTMLElement>('.react-pdf__Page')
     const pageRect = pageElement?.getBoundingClientRect()
-    const rects =
+    const capturedRects =
       range && pageRect
         ? Array.from(range.getClientRects())
             .map((item) => {
@@ -831,6 +890,7 @@ function App(): JSX.Element {
             })
             .filter((item): item is AnnotationRect => Boolean(item))
         : []
+    const rects = normalizeAnnotationRects(capturedRects)
 
     setSelection({
       text,
