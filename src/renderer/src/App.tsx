@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import type { WheelEvent } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { PointerEvent, WheelEvent } from 'react'
 import type { Source } from 'react-pdf/dist/shared/types.js'
 import { Document, Page } from 'react-pdf'
 import {
@@ -10,6 +10,7 @@ import {
   ChevronRight,
   FileText,
   Highlighter,
+  Hand,
   KeyRound,
   Languages,
   MessageSquarePlus,
@@ -49,12 +50,15 @@ type AIRunState = {
   output: string
   status: 'idle' | 'running' | 'done' | 'error'
   error: string | null
+  source: 'selection' | 'vocabulary'
+  vocabularyId?: string
 }
 
 const promptLabels: Record<AIPromptType, string> = {
   translate_selection: '翻译',
   explain_selection: '解释',
-  summarize_selection: '总结'
+  summarize_selection: '总结',
+  define_vocabulary: '词汇释义'
 }
 
 const minScale = 0.75
@@ -86,6 +90,14 @@ const toPdfBlobUrl = (data: ArrayBuffer | Uint8Array): string => {
   return URL.createObjectURL(new Blob([stableCopy], { type: 'application/pdf' }))
 }
 
+type PanState = {
+  pointerId: number
+  startX: number
+  startY: number
+  scrollLeft: number
+  scrollTop: number
+}
+
 function App(): JSX.Element {
   const [documents, setDocuments] = useState<DocumentRecord[]>([])
   const [activeDocument, setActiveDocument] = useState<DocumentRecord | null>(null)
@@ -100,9 +112,15 @@ function App(): JSX.Element {
   const [pageNumber, setPageNumber] = useState(1)
   const [pageCount, setPageCount] = useState(0)
   const [scale, setScale] = useState(1.08)
+  const [isPanMode, setIsPanMode] = useState(false)
+  const [isPanning, setIsPanning] = useState(false)
   const [draftNote, setDraftNote] = useState('')
   const [status, setStatus] = useState('打开一本 PDF 开始阅读')
   const [aiRun, setAiRun] = useState<AIRunState | null>(null)
+  const aiRunRef = useRef<AIRunState | null>(null)
+  const readerSurfaceRef = useRef<HTMLDivElement | null>(null)
+  const panStateRef = useRef<PanState | null>(null)
+  const suppressSelectionRef = useRef(false)
 
   const currentPageAnnotations = useMemo(
     () => annotations.filter((item) => item.pageNumber === pageNumber),
@@ -125,6 +143,10 @@ function App(): JSX.Element {
     void refreshLibrary()
     void refreshProviders()
   }, [])
+
+  useEffect(() => {
+    aiRunRef.current = aiRun
+  }, [aiRun])
 
   useEffect(() => {
     return () => {
@@ -193,22 +215,33 @@ function App(): JSX.Element {
       return
     }
 
-    const note = await window.readingPartner.createAnnotation({
-      documentId: event.artifact.documentId,
-      type: 'note',
-      pageNumber: event.artifact.pageNumber ?? 1,
-      selectedText: event.artifact.inputText,
-      color: '#c7d2fe',
-      note: `AI ${promptLabels[event.artifact.promptType]}\n\n${event.artifact.outputMarkdown}`
-    })
+    const currentRun = aiRunRef.current
 
-    setAnnotations((items) => [...items, note])
+    if (currentRun?.source === 'vocabulary' && currentRun.vocabularyId) {
+      const updated = await window.readingPartner.updateVocabularyDefinition({
+        id: currentRun.vocabularyId,
+        definition: event.artifact.outputMarkdown
+      })
+      setVocabulary((items) => items.map((item) => (item.id === updated.id ? updated : item)))
+    } else {
+      const note = await window.readingPartner.createAnnotation({
+        documentId: event.artifact.documentId,
+        type: 'note',
+        pageNumber: event.artifact.pageNumber ?? 1,
+        selectedText: event.artifact.inputText,
+        color: '#c7d2fe',
+        note: `AI ${promptLabels[event.artifact.promptType]}\n\n${event.artifact.outputMarkdown}`
+      })
+
+      setAnnotations((items) => [...items, note])
+    }
+
     setAiRun((current) =>
       current && current.requestId === event.requestId
         ? { ...current, status: 'done', output: event.artifact.outputMarkdown }
         : current
     )
-    setStatus('AI 结果已保存为笔记')
+    setStatus(currentRun?.source === 'vocabulary' ? 'AI 释义已写入词汇本' : 'AI 结果已保存为笔记')
   }
 
   const loadDocument = async (document: DocumentRecord): Promise<void> => {
@@ -318,7 +351,8 @@ function App(): JSX.Element {
       model: readyProvider.defaultModel,
       output: '',
       status: 'running',
-      error: null
+      error: null,
+      source: 'selection'
     })
     setActiveTab('ai')
     setSelection(null)
@@ -393,6 +427,51 @@ function App(): JSX.Element {
     }
   }
 
+  const defineVocabularyWithAI = async (item: VocabularyRecord): Promise<void> => {
+    if (!activeDocument) {
+      return
+    }
+
+    if (!readyProvider) {
+      setActiveTab('settings')
+      setStatus('请先在配置面板为至少一个启用的 Provider 保存 API Key')
+      return
+    }
+
+    const requestId = crypto.randomUUID()
+    const inputText = [
+      `Term: ${item.word}`,
+      item.sourceSentence ? `Source sentence: ${item.sourceSentence}` : null,
+      item.definition ? `Current definition: ${item.definition}` : null
+    ]
+      .filter(Boolean)
+      .join('\n')
+
+    setAiRun({
+      requestId,
+      promptType: 'define_vocabulary',
+      inputText,
+      providerLabel: readyProvider.label,
+      model: readyProvider.defaultModel,
+      output: '',
+      status: 'running',
+      error: null,
+      source: 'vocabulary',
+      vocabularyId: item.id
+    })
+    setActiveTab('ai')
+    setStatus(`正在使用 ${readyProvider.label} 生成词汇释义`)
+
+    await window.readingPartner.runAIAction({
+      requestId,
+      providerId: readyProvider.id,
+      documentId: activeDocument.id,
+      pageNumber: item.pageNumber ?? pageNumber,
+      promptType: 'define_vocabulary',
+      selectedText: inputText
+    })
+  }
+
   const zoomBy = (delta: number): void => {
     setScale((value) => clampScale(value + delta))
   }
@@ -404,6 +483,57 @@ function App(): JSX.Element {
 
     event.preventDefault()
     zoomBy(event.deltaY < 0 ? scaleStep : -scaleStep)
+  }
+
+  const stopReaderPan = (event?: PointerEvent<HTMLDivElement>): void => {
+    if (event && panStateRef.current) {
+      event.currentTarget.releasePointerCapture(panStateRef.current.pointerId)
+    }
+
+    panStateRef.current = null
+    setIsPanning(false)
+  }
+
+  const handleReaderPointerDown = (event: PointerEvent<HTMLDivElement>): void => {
+    if (!activeDocument) {
+      return
+    }
+
+    const shouldPan = event.button === 1 || (isPanMode && event.button === 0)
+
+    if (!shouldPan) {
+      return
+    }
+
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    panStateRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: event.currentTarget.scrollLeft,
+      scrollTop: event.currentTarget.scrollTop
+    }
+    suppressSelectionRef.current = true
+    setSelection(null)
+    setIsPanning(true)
+  }
+
+  const handleReaderPointerMove = (event: PointerEvent<HTMLDivElement>): void => {
+    const panState = panStateRef.current
+
+    if (!panState) {
+      return
+    }
+
+    event.preventDefault()
+    const surface = event.currentTarget
+    surface.scrollLeft = panState.scrollLeft - (event.clientX - panState.startX)
+    surface.scrollTop = panState.scrollTop - (event.clientY - panState.startY)
+  }
+
+  const handleReaderPointerUp = (event: PointerEvent<HTMLDivElement>): void => {
+    stopReaderPan(event)
   }
 
   const updateProvider = async (provider: AIProviderRecord, enabled: boolean): Promise<void> => {
@@ -543,10 +673,46 @@ function App(): JSX.Element {
             >
               <Plus size={18} />
             </button>
+            <button
+              className={isPanMode ? 'icon-button active' : 'icon-button'}
+              disabled={!activeDocument}
+              title="手型拖动"
+              onClick={() => setIsPanMode((value) => !value)}
+            >
+              <Hand size={18} />
+            </button>
           </div>
         </header>
 
-        <div className="reader-surface" onMouseUp={captureSelection} onWheel={handleReaderWheel}>
+        <div
+          className={[
+            'reader-surface',
+            isPanMode ? 'pan-enabled' : '',
+            isPanning ? 'is-panning' : ''
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          ref={readerSurfaceRef}
+          onAuxClick={(event) => {
+            if (event.button === 1) {
+              event.preventDefault()
+            }
+          }}
+          onMouseUp={() => {
+            if (suppressSelectionRef.current) {
+              suppressSelectionRef.current = false
+              return
+            }
+
+            captureSelection()
+          }}
+          onPointerCancel={handleReaderPointerUp}
+          onPointerDown={handleReaderPointerDown}
+          onPointerLeave={() => stopReaderPan()}
+          onPointerMove={handleReaderPointerMove}
+          onPointerUp={handleReaderPointerUp}
+          onWheel={handleReaderWheel}
+        >
           {pdfFile ? (
             <Document
               file={pdfFile}
@@ -679,6 +845,7 @@ function App(): JSX.Element {
             hasDocument={Boolean(activeDocument)}
             vocabulary={vocabulary}
             onCreate={(word, definition) => void createVocabulary(word, definition)}
+            onDefine={(item) => void defineVocabularyWithAI(item)}
             onDelete={(id) => void deleteVocabulary(id)}
           />
         )}
@@ -818,6 +985,7 @@ type VocabularyPanelProps = {
   hasDocument: boolean
   vocabulary: VocabularyRecord[]
   onCreate: (word: string, definition: string) => void
+  onDefine: (item: VocabularyRecord) => void
   onDelete: (id: string) => void
 }
 
@@ -825,6 +993,7 @@ function VocabularyPanel({
   hasDocument,
   vocabulary,
   onCreate,
+  onDefine,
   onDelete
 }: VocabularyPanelProps): JSX.Element {
   const [word, setWord] = useState('')
@@ -876,6 +1045,10 @@ function VocabularyPanel({
               </div>
               <p>{item.definition}</p>
               {item.sourceSentence && <blockquote>{item.sourceSentence}</blockquote>}
+              <button className="text-button" disabled={!hasDocument} onClick={() => onDefine(item)}>
+                <Sparkles size={14} />
+                AI 释义
+              </button>
               <button className="text-button" onClick={() => onDelete(item.id)}>
                 <Trash2 size={14} />
                 删除

@@ -9,6 +9,7 @@ import {
   CreateAnnotationInput,
   CreateVocabularyInput,
   RunAIActionInput,
+  UpdateVocabularyDefinitionInput,
   UpsertAIProviderInput
 } from '../shared/types'
 
@@ -89,6 +90,10 @@ const registerIpc = (): void => {
 
   ipcMain.handle('vocabulary:create', (_event, input: CreateVocabularyInput) =>
     database.createVocabulary(input)
+  )
+
+  ipcMain.handle('vocabulary:updateDefinition', (_event, input: UpdateVocabularyDefinitionInput) =>
+    database.updateVocabularyDefinition(input)
   )
 
   ipcMain.handle('vocabulary:delete', (_event, id: string) => {

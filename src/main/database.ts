@@ -11,6 +11,7 @@ import {
   CreateAnnotationInput,
   CreateVocabularyInput,
   DocumentRecord,
+  UpdateVocabularyDefinitionInput,
   UpsertAIProviderInput,
   VocabularyRecord
 } from '../shared/types'
@@ -297,6 +298,24 @@ export class ReadingPartnerDatabase {
     const row = this.get<VocabularyRow>('select * from vocabulary where id = ?', [id])
     if (!row) {
       throw new Error(`Vocabulary item not found after insert: ${id}`)
+    }
+
+    return toVocabulary(row)
+  }
+
+  updateVocabularyDefinition(input: UpdateVocabularyDefinitionInput): VocabularyRecord {
+    const definition = input.definition.trim()
+
+    if (!definition) {
+      throw new Error('Vocabulary definition cannot be empty.')
+    }
+
+    this.db.run('update vocabulary set definition = ? where id = ?', [definition, input.id])
+    this.persist()
+
+    const row = this.get<VocabularyRow>('select * from vocabulary where id = ?', [input.id])
+    if (!row) {
+      throw new Error(`Vocabulary item not found: ${input.id}`)
     }
 
     return toVocabulary(row)

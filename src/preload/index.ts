@@ -5,6 +5,7 @@ import {
   CreateVocabularyInput,
   ReadingPartnerApi,
   RunAIActionInput,
+  UpdateVocabularyDefinitionInput,
   UpsertAIProviderInput
 } from '../shared/types'
 
@@ -19,6 +20,8 @@ const api: ReadingPartnerApi = {
   listVocabulary: (documentId?: string | null) => ipcRenderer.invoke('vocabulary:list', documentId),
   createVocabulary: (input: CreateVocabularyInput) =>
     ipcRenderer.invoke('vocabulary:create', input),
+  updateVocabularyDefinition: (input: UpdateVocabularyDefinitionInput) =>
+    ipcRenderer.invoke('vocabulary:updateDefinition', input),
   deleteVocabulary: (id: string) => ipcRenderer.invoke('vocabulary:delete', id),
   listAIProviders: () => ipcRenderer.invoke('aiProviders:list'),
   upsertAIProvider: (input: UpsertAIProviderInput) =>

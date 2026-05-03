@@ -107,12 +107,12 @@ Current implementation:
 - The main process owns vocabulary CRUD through SQLite.
 - The renderer can add selected PDF text to the active document's vocabulary book.
 - Vocabulary rows store the term, definition, source sentence, source page, and source document.
+- Vocabulary entries can request an AI-generated Chinese definition, then write the result back to the local vocabulary row.
 
 Planned implementation:
 
 - Import ECDICT into a local lookup table.
 - Use local dictionary lookup before spending model tokens.
-- Let AI refine or expand vocabulary definitions only when requested.
 
 ## Security Notes
 

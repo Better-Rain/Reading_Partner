@@ -231,6 +231,12 @@ button:disabled {
   opacity: 0.46;
 }
 
+.icon-button.active {
+  border-color: #9db7dc;
+  background: #dce8f8;
+  color: #1d4f91;
+}
+
 .page-input {
   display: flex;
   height: 34px;
@@ -262,6 +268,15 @@ button:disabled {
     #e6eaf0;
   background-size: 28px 28px;
   padding: 28px;
+}
+
+.reader-surface.pan-enabled {
+  cursor: grab;
+}
+
+.reader-surface.is-panning {
+  cursor: grabbing;
+  user-select: none;
 }
 
 .pdf-page-frame {

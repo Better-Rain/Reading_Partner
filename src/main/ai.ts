@@ -22,7 +22,8 @@ type AICompletionOptions = {
 const promptLabels: Record<AIPromptType, string> = {
   translate_selection: 'translate',
   explain_selection: 'explain',
-  summarize_selection: 'summarize'
+  summarize_selection: 'summarize',
+  define_vocabulary: 'define vocabulary'
 }
 
 const buildMessages = (promptType: AIPromptType, selectedText: string): ChatMessage[] => {
@@ -53,6 +54,20 @@ const buildMessages = (promptType: AIPromptType, selectedText: string): ChatMess
       {
         role: 'user',
         content: `Summarize this selected text:\n\n${selectedText}`
+      }
+    ]
+  }
+
+  if (promptType === 'define_vocabulary') {
+    return [
+      {
+        role: 'system',
+        content:
+          `${baseSystem} Create a compact Chinese vocabulary note. Include meaning, common usage, part of speech if clear, and a short note about the source sentence. Do not over-explain.`
+      },
+      {
+        role: 'user',
+        content: `Create a vocabulary definition for this term and context:\n\n${selectedText}`
       }
     ]
   }

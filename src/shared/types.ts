@@ -1,5 +1,9 @@
 export type AnnotationType = 'highlight' | 'note' | 'bookmark'
-export type AIPromptType = 'translate_selection' | 'explain_selection' | 'summarize_selection'
+export type AIPromptType =
+  | 'translate_selection'
+  | 'explain_selection'
+  | 'summarize_selection'
+  | 'define_vocabulary'
 
 export type DocumentRecord = {
   id: string
@@ -77,6 +81,11 @@ export type CreateVocabularyInput = {
   pageNumber?: number | null
 }
 
+export type UpdateVocabularyDefinitionInput = {
+  id: string
+  definition: string
+}
+
 export type UpsertAIProviderInput = {
   id: string
   label: string
@@ -139,6 +148,9 @@ export type ReadingPartnerApi = {
   deleteAnnotation: (id: string) => Promise<void>
   listVocabulary: (documentId?: string | null) => Promise<VocabularyRecord[]>
   createVocabulary: (input: CreateVocabularyInput) => Promise<VocabularyRecord>
+  updateVocabularyDefinition: (
+    input: UpdateVocabularyDefinitionInput
+  ) => Promise<VocabularyRecord>
   deleteVocabulary: (id: string) => Promise<void>
   listAIProviders: () => Promise<AIProviderRecord[]>
   upsertAIProvider: (input: UpsertAIProviderInput) => Promise<AIProviderRecord>
