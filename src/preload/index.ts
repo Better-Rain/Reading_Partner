@@ -8,6 +8,7 @@ import {
   RunAIChatInput,
   RunAIActionInput,
   UpdateAnnotationInput,
+  UpdateAIConversationTitleInput,
   UpdateVocabularyDefinitionInput,
   UpsertAIProviderInput
 } from '../shared/types'
@@ -50,6 +51,8 @@ const api: ReadingPartnerApi = {
   listAIConversations: (documentId: string) => ipcRenderer.invoke('ai:conversations', documentId),
   createAIConversation: (documentId: string, title?: string | null) =>
     ipcRenderer.invoke('ai:createConversation', documentId, title),
+  updateAIConversationTitle: (input: UpdateAIConversationTitleInput) =>
+    ipcRenderer.invoke('ai:updateConversationTitle', input),
   listAIChatMessages: (conversationId: string) =>
     ipcRenderer.invoke('ai:chatMessages', conversationId),
   runAIChat: (input: RunAIChatInput) => ipcRenderer.invoke('ai:runChat', input),

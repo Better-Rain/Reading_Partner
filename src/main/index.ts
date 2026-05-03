@@ -19,6 +19,7 @@ import {
   RunAIChatInput,
   RunAIActionInput,
   UpdateAnnotationInput,
+  UpdateAIConversationTitleInput,
   UpdateVocabularyDefinitionInput,
   UpsertAIProviderInput
 } from '../shared/types'
@@ -254,6 +255,10 @@ const registerIpc = (): void => {
 
   ipcMain.handle('ai:createConversation', (_event, documentId: string, title?: string | null) =>
     database.createAIConversation({ documentId, title })
+  )
+
+  ipcMain.handle('ai:updateConversationTitle', (_event, input: UpdateAIConversationTitleInput) =>
+    database.updateAIConversationTitle(input)
   )
 
   ipcMain.handle('ai:chatMessages', (_event, conversationId: string) =>

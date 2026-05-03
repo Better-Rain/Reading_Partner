@@ -21,6 +21,7 @@ import {
   DocumentTextIndexStatus,
   DocumentRecord,
   UpdateAnnotationInput,
+  UpdateAIConversationTitleInput,
   UpdateVocabularyDefinitionInput,
   UpsertAIProviderInput,
   VocabularyRecord
@@ -1044,6 +1045,29 @@ export class ReadingPartnerDatabase {
     const row = this.get<AIConversationRow>('select * from ai_conversations where id = ?', [id])
     if (!row) {
       throw new Error(`AI conversation not found after insert: ${id}`)
+    }
+
+    return toAIConversation(row)
+  }
+
+  updateAIConversationTitle(input: UpdateAIConversationTitleInput): AIConversationRecord {
+    const title = input.title.trim()
+
+    if (!title) {
+      throw new Error('AI conversation title cannot be empty.')
+    }
+
+    const timestamp = now()
+    this.db.run('update ai_conversations set title = ?, updated_at = ? where id = ?', [
+      title,
+      timestamp,
+      input.id
+    ])
+    this.persist()
+
+    const row = this.get<AIConversationRow>('select * from ai_conversations where id = ?', [input.id])
+    if (!row) {
+      throw new Error(`AI conversation not found: ${input.id}`)
     }
 
     return toAIConversation(row)

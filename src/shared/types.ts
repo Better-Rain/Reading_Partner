@@ -109,6 +109,11 @@ export type AIConversationRecord = {
   updatedAt: string
 }
 
+export type UpdateAIConversationTitleInput = {
+  id: string
+  title: string
+}
+
 export type AIChatMessageRole = 'user' | 'assistant'
 
 export type AIChatMessageRecord = {
@@ -283,6 +288,9 @@ export type ReadingPartnerApi = {
   createAIConversation: (
     documentId: string,
     title?: string | null
+  ) => Promise<AIConversationRecord>
+  updateAIConversationTitle: (
+    input: UpdateAIConversationTitleInput
   ) => Promise<AIConversationRecord>
   listAIChatMessages: (conversationId: string) => Promise<AIChatMessageRecord[]>
   runAIChat: (input: RunAIChatInput) => Promise<void>

@@ -238,6 +238,19 @@ const formatTime = (iso: string): string =>
     minute: '2-digit'
   }).format(new Date(iso))
 
+const makeConversationTitle = (message: string): string => {
+  const normalized = message
+    .replace(/[`*_>#-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!normalized) {
+    return '共读对话'
+  }
+
+  return normalized.length > 24 ? `${normalized.slice(0, 24)}...` : normalized
+}
+
 const toPdfBlobUrl = (data: ArrayBuffer | Uint8Array): string => {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data)
   const stableCopy = bytes.slice()
@@ -496,6 +509,7 @@ function App(): JSX.Element {
   const [isChatDrawerOpen, setIsChatDrawerOpen] = useState(false)
   const [chatMessages, setChatMessages] = useState<AIChatMessageRecord[]>([])
   const [chatDraft, setChatDraft] = useState('')
+  const [chatTitleDraft, setChatTitleDraft] = useState('')
   const [status, setStatus] = useState('打开一本 PDF 开始阅读')
   const [aiRun, setAiRun] = useState<AIRunState | null>(null)
   const aiRunRef = useRef<AIRunState | null>(null)
@@ -642,10 +656,25 @@ function App(): JSX.Element {
   const selectAIConversation = async (conversationId: string): Promise<void> => {
     setActiveConversationId(conversationId)
     setChatMessages(await window.readingPartner.listAIChatMessages(conversationId))
+    setChatTitleDraft('')
     setIsChatDrawerOpen(true)
   }
 
-  const createAIConversation = async (): Promise<AIConversationRecord | null> => {
+  const startNewAIConversation = (): void => {
+    if (!activeDocument) {
+      return
+    }
+
+    setActiveConversationId(null)
+    setChatMessages([])
+    setChatDraft('')
+    setChatTitleDraft('')
+    setIsChatDrawerOpen(true)
+    setActiveTab('ai')
+    setStatus('正在创建新对话，发送第一条消息后保存')
+  }
+
+  const createAIConversation = async (title?: string): Promise<AIConversationRecord | null> => {
     if (!activeDocument) {
       return null
     }
@@ -654,13 +683,31 @@ function App(): JSX.Element {
       activeDocument.id,
       '共读对话'
     )
-    setAiConversations((items) => [conversation, ...items])
-    setActiveConversationId(conversation.id)
+    const titledConversation = title?.trim()
+      ? await window.readingPartner.updateAIConversationTitle({ id: conversation.id, title: title.trim() })
+      : conversation
+    setAiConversations((items) => [titledConversation, ...items])
+    setActiveConversationId(titledConversation.id)
     setChatMessages([])
     setIsChatDrawerOpen(true)
     setStatus('已创建共读对话')
 
-    return conversation
+    return titledConversation
+  }
+
+  const updateAIConversationTitle = async (conversationId: string, title: string): Promise<void> => {
+    const trimmed = title.trim()
+
+    if (!trimmed) {
+      return
+    }
+
+    const updated = await window.readingPartner.updateAIConversationTitle({
+      id: conversationId,
+      title: trimmed
+    })
+    setAiConversations((items) => items.map((item) => (item.id === conversationId ? updated : item)))
+    setStatus('已更新对话名称')
   }
 
   const searchDocument = async (query = searchQuery): Promise<void> => {
@@ -813,6 +860,8 @@ function App(): JSX.Element {
     clearSearch()
     setQaQuestion('')
     setChatDraft('')
+    setChatTitleDraft('')
+    setIsChatDrawerOpen(false)
     await Promise.all([
       refreshAnnotations(document.id),
       refreshVocabulary(document.id),
@@ -1024,7 +1073,9 @@ function App(): JSX.Element {
       return
     }
 
-    const conversation = activeConversation ?? (await createAIConversation())
+    const conversation =
+      activeConversation ??
+      (await createAIConversation(chatTitleDraft.trim() || makeConversationTitle(trimmed)))
 
     if (!conversation) {
       return
@@ -1048,6 +1099,7 @@ function App(): JSX.Element {
     setChatMessages((items) => [...items, optimisticMessage])
     setIsChatDrawerOpen(true)
     setChatDraft('')
+    setChatTitleDraft('')
     setAiRun({
       requestId,
       promptType: 'chat_document',
@@ -1606,6 +1658,7 @@ function App(): JSX.Element {
           <AiPanel
             aiRun={aiRun}
             chatDraft={chatDraft}
+            chatTitleDraft={chatTitleDraft}
             chatMessages={chatMessages}
             conversations={aiConversations}
             hasDocument={Boolean(activeDocument)}
@@ -1616,12 +1669,16 @@ function App(): JSX.Element {
             activeConversationId={activeConversationId}
             onAskDocument={(question) => void askDocumentQuestion(question)}
             onChatDraftChange={setChatDraft}
+            onChatTitleDraftChange={setChatTitleDraft}
             onCloseConversation={() => setIsChatDrawerOpen(false)}
-            onCreateConversation={() => void createAIConversation()}
+            onCreateConversation={startNewAIConversation}
             onSendChat={(message) => void sendChatMessage(message)}
             onSelectConversation={(conversationId) => void selectAIConversation(conversationId)}
             onQuestionChange={setQaQuestion}
             onRun={(promptType) => void runAIAction(promptType)}
+            onUpdateConversationTitle={(conversationId, title) =>
+              void updateAIConversationTitle(conversationId, title)
+            }
           />
         )}
 
@@ -1875,6 +1932,7 @@ type AiPanelProps = {
   activeConversationId: string | null
   aiRun: AIRunState | null
   chatDraft: string
+  chatTitleDraft: string
   chatMessages: AIChatMessageRecord[]
   conversations: AIConversationRecord[]
   hasDocument: boolean
@@ -1884,18 +1942,21 @@ type AiPanelProps = {
   selection: string | null
   onAskDocument: (question: string) => void
   onChatDraftChange: (value: string) => void
+  onChatTitleDraftChange: (value: string) => void
   onCloseConversation: () => void
   onCreateConversation: () => void
   onQuestionChange: (value: string) => void
   onRun: (promptType: AIPromptType) => void
   onSelectConversation: (conversationId: string) => void
   onSendChat: (message: string) => void
+  onUpdateConversationTitle: (conversationId: string, title: string) => void
 }
 
 function AiPanel({
   activeConversationId,
   aiRun,
   chatDraft,
+  chatTitleDraft,
   chatMessages,
   conversations,
   hasDocument,
@@ -1905,12 +1966,14 @@ function AiPanel({
   selection,
   onAskDocument,
   onChatDraftChange,
+  onChatTitleDraftChange,
   onCloseConversation,
   onCreateConversation,
   onQuestionChange,
   onRun,
   onSelectConversation,
-  onSendChat
+  onSendChat,
+  onUpdateConversationTitle
 }: AiPanelProps): JSX.Element {
   const canAskDocument =
     hasDocument && Boolean(readyProvider) && question.trim().length > 0 && aiRun?.status !== 'running'
@@ -1918,8 +1981,16 @@ function AiPanel({
     hasDocument && Boolean(readyProvider) && chatDraft.trim().length > 0 && aiRun?.status !== 'running'
   const activeChatRunning = aiRun?.source === 'chat' && aiRun.status === 'running'
   const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId)
+  const isCreatingConversation = isConversationOpen && activeConversationId === null
+  const [isEditingTitle, setIsEditingTitle] = useState(false)
+  const [titleEditDraft, setTitleEditDraft] = useState(activeConversation?.title ?? '')
 
-  if (isConversationOpen && activeConversation) {
+  useEffect(() => {
+    setTitleEditDraft(activeConversation?.title ?? '')
+    setIsEditingTitle(false)
+  }, [activeConversation?.id, activeConversation?.title])
+
+  if (isConversationOpen && (activeConversation || isCreatingConversation)) {
     return (
       <div className="inspector-content chat-drawer">
         <header className="chat-drawer-header">
@@ -1927,9 +1998,57 @@ function AiPanel({
             <ChevronLeft size={15} />
             返回
           </button>
-          <div>
-            <strong>{activeConversation.title}</strong>
-            <span>{readyProvider ? `${readyProvider.label} / ${readyProvider.defaultModel}` : '未配置 AI'}</span>
+          <div className="chat-title-block">
+            {isCreatingConversation ? (
+              <input
+                className="chat-title-input"
+                placeholder="对话名称（可选，留空自动生成）"
+                value={chatTitleDraft}
+                onChange={(event) => onChatTitleDraftChange(event.target.value)}
+              />
+            ) : isEditingTitle ? (
+              <div className="chat-title-editor">
+                <input
+                  autoFocus
+                  value={titleEditDraft}
+                  onChange={(event) => setTitleEditDraft(event.target.value)}
+                />
+                <button
+                  className="text-button neutral"
+                  onClick={() => {
+                    if (activeConversation) {
+                      onUpdateConversationTitle(activeConversation.id, titleEditDraft)
+                    }
+                    setIsEditingTitle(false)
+                  }}
+                >
+                  <Check size={14} />
+                  保存
+                </button>
+                <button
+                  className="text-button"
+                  onClick={() => {
+                    setTitleEditDraft(activeConversation?.title ?? '')
+                    setIsEditingTitle(false)
+                  }}
+                >
+                  <X size={14} />
+                  取消
+                </button>
+              </div>
+            ) : (
+              <div className="chat-title-row">
+                <strong>{activeConversation?.title ?? '新对话'}</strong>
+                <button className="text-button neutral" onClick={() => setIsEditingTitle(true)}>
+                  <Pencil size={14} />
+                  改名
+                </button>
+              </div>
+            )}
+            <span>
+              {readyProvider ? `${readyProvider.label} / ${readyProvider.defaultModel}` : '未配置 AI'}
+              {isCreatingConversation ? ' / 发送后保存' : ''}
+            </span>
           </div>
         </header>
 
