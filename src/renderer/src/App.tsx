@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import type { WheelEvent } from 'react'
 import type { Source } from 'react-pdf/dist/shared/types.js'
 import { Document, Page } from 'react-pdf'
 import {
@@ -55,6 +56,13 @@ const promptLabels: Record<AIPromptType, string> = {
   explain_selection: '解释',
   summarize_selection: '总结'
 }
+
+const minScale = 0.75
+const maxScale = 1.8
+const scaleStep = 0.1
+
+const clampScale = (value: number): number =>
+  Math.min(maxScale, Math.max(minScale, Number(value.toFixed(2))))
 
 const formatBytes = (bytes: number): string => {
   if (bytes < 1024 * 1024) {
@@ -336,19 +344,23 @@ function App(): JSX.Element {
       return
     }
 
-    const word = selection.text.replace(/\s+/g, ' ').trim()
-    const created = await window.readingPartner.createVocabulary({
-      documentId: activeDocument.id,
-      word,
-      definition: '待补充释义',
-      sourceSentence: selection.text,
-      pageNumber
-    })
+    try {
+      const word = selection.text.replace(/\s+/g, ' ').trim()
+      const created = await window.readingPartner.createVocabulary({
+        documentId: activeDocument.id,
+        word,
+        definition: '待补充释义',
+        sourceSentence: selection.text,
+        pageNumber
+      })
 
-    setVocabulary((items) => [created, ...items])
-    setSelection(null)
-    setActiveTab('vocab')
-    setStatus('已加入词汇本')
+      setVocabulary((items) => [created, ...items])
+      setSelection(null)
+      setActiveTab('vocab')
+      setStatus('已加入词汇本')
+    } catch (error) {
+      setStatus(`加入词汇本失败：${error instanceof Error ? error.message : String(error)}`)
+    }
   }
 
   const createVocabulary = async (word: string, definition: string): Promise<void> => {
@@ -356,20 +368,42 @@ function App(): JSX.Element {
       return
     }
 
-    const created = await window.readingPartner.createVocabulary({
-      documentId: activeDocument.id,
-      word,
-      definition,
-      pageNumber
-    })
+    try {
+      const created = await window.readingPartner.createVocabulary({
+        documentId: activeDocument.id,
+        word,
+        definition,
+        pageNumber
+      })
 
-    setVocabulary((items) => [created, ...items])
-    setStatus('已保存词汇')
+      setVocabulary((items) => [created, ...items])
+      setStatus('已保存词汇')
+    } catch (error) {
+      setStatus(`保存词汇失败：${error instanceof Error ? error.message : String(error)}`)
+    }
   }
 
   const deleteVocabulary = async (id: string): Promise<void> => {
-    await window.readingPartner.deleteVocabulary(id)
-    setVocabulary((items) => items.filter((item) => item.id !== id))
+    try {
+      await window.readingPartner.deleteVocabulary(id)
+      setVocabulary((items) => items.filter((item) => item.id !== id))
+      setStatus('已删除词汇')
+    } catch (error) {
+      setStatus(`删除词汇失败：${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  const zoomBy = (delta: number): void => {
+    setScale((value) => clampScale(value + delta))
+  }
+
+  const handleReaderWheel = (event: WheelEvent<HTMLDivElement>): void => {
+    if (!event.ctrlKey || !activeDocument) {
+      return
+    }
+
+    event.preventDefault()
+    zoomBy(event.deltaY < 0 ? scaleStep : -scaleStep)
   }
 
   const updateProvider = async (provider: AIProviderRecord, enabled: boolean): Promise<void> => {
@@ -497,7 +531,7 @@ function App(): JSX.Element {
               className="icon-button"
               disabled={!activeDocument}
               title="缩小"
-              onClick={() => setScale((value) => Math.max(0.75, value - 0.1))}
+              onClick={() => zoomBy(-scaleStep)}
             >
               <Minus size={18} />
             </button>
@@ -505,14 +539,14 @@ function App(): JSX.Element {
               className="icon-button"
               disabled={!activeDocument}
               title="放大"
-              onClick={() => setScale((value) => Math.min(1.8, value + 0.1))}
+              onClick={() => zoomBy(scaleStep)}
             >
               <Plus size={18} />
             </button>
           </div>
         </header>
 
-        <div className="reader-surface" onMouseUp={captureSelection}>
+        <div className="reader-surface" onMouseUp={captureSelection} onWheel={handleReaderWheel}>
           {pdfFile ? (
             <Document
               file={pdfFile}
