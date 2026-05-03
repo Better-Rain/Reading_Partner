@@ -9,8 +9,10 @@ import {
   AIPromptType,
   AnnotationRecord,
   CreateAnnotationInput,
+  CreateVocabularyInput,
   DocumentRecord,
-  UpsertAIProviderInput
+  UpsertAIProviderInput,
+  VocabularyRecord
 } from '../shared/types'
 
 const now = (): string => new Date().toISOString()
@@ -64,6 +66,16 @@ type AIArtifactRow = {
   created_at: string
 }
 
+type VocabularyRow = {
+  id: string
+  document_id: string | null
+  word: string
+  definition: string
+  source_sentence: string | null
+  page_number: number | null
+  created_at: string
+}
+
 const toDocument = (row: DocumentRow): DocumentRecord => ({
   id: row.id,
   title: row.title,
@@ -108,6 +120,16 @@ const toAIArtifact = (row: AIArtifactRow): AIArtifactRecord => ({
   promptType: row.prompt_type,
   inputText: row.input_text,
   outputMarkdown: row.output_markdown,
+  pageNumber: row.page_number,
+  createdAt: row.created_at
+})
+
+const toVocabulary = (row: VocabularyRow): VocabularyRecord => ({
+  id: row.id,
+  documentId: row.document_id,
+  word: row.word,
+  definition: row.definition,
+  sourceSentence: row.source_sentence,
   pageNumber: row.page_number,
   createdAt: row.created_at
 })
@@ -225,6 +247,63 @@ export class ReadingPartnerDatabase {
 
   deleteAnnotation(id: string): void {
     this.db.run('delete from annotations where id = ?', [id])
+    this.persist()
+  }
+
+  listVocabulary(documentId?: string | null): VocabularyRecord[] {
+    const rows = documentId
+      ? this.query<VocabularyRow>(
+          `select * from vocabulary
+           where document_id = ?
+           order by created_at desc`,
+          [documentId]
+        )
+      : this.query<VocabularyRow>('select * from vocabulary order by created_at desc')
+
+    return rows.map(toVocabulary)
+  }
+
+  createVocabulary(input: CreateVocabularyInput): VocabularyRecord {
+    const word = input.word.trim()
+    const definition = input.definition.trim()
+
+    if (!word) {
+      throw new Error('Vocabulary word cannot be empty.')
+    }
+
+    if (!definition) {
+      throw new Error('Vocabulary definition cannot be empty.')
+    }
+
+    const id = randomUUID()
+    const timestamp = now()
+
+    this.db.run(
+      `insert into vocabulary (
+        id, document_id, word, definition, source_sentence, page_number, created_at
+      ) values (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        input.documentId ?? null,
+        word,
+        definition,
+        input.sourceSentence ?? null,
+        input.pageNumber ?? null,
+        timestamp
+      ]
+    )
+    this.persist()
+
+    const row = this.get<VocabularyRow>('select * from vocabulary where id = ?', [id])
+    if (!row) {
+      throw new Error(`Vocabulary item not found after insert: ${id}`)
+    }
+
+    return toVocabulary(row)
+  }
+
+  deleteVocabulary(id: string): void {
+    this.db.run('delete from vocabulary where id = ?', [id])
     this.persist()
   }
 
@@ -401,6 +480,9 @@ export class ReadingPartnerDatabase {
         page_number integer,
         created_at text not null
       );
+
+      create index if not exists idx_vocabulary_document_created
+        on vocabulary(document_id, created_at);
     `)
   }
 

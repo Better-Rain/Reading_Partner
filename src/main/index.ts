@@ -7,6 +7,7 @@ import { KeyStore } from './keyStore'
 import {
   AIStreamEvent,
   CreateAnnotationInput,
+  CreateVocabularyInput,
   RunAIActionInput,
   UpsertAIProviderInput
 } from '../shared/types'
@@ -80,6 +81,18 @@ const registerIpc = (): void => {
 
   ipcMain.handle('annotations:delete', (_event, id: string) => {
     database.deleteAnnotation(id)
+  })
+
+  ipcMain.handle('vocabulary:list', (_event, documentId?: string | null) =>
+    database.listVocabulary(documentId)
+  )
+
+  ipcMain.handle('vocabulary:create', (_event, input: CreateVocabularyInput) =>
+    database.createVocabulary(input)
+  )
+
+  ipcMain.handle('vocabulary:delete', (_event, id: string) => {
+    database.deleteVocabulary(id)
   })
 
   ipcMain.handle('aiProviders:list', () => database.listAIProviders())

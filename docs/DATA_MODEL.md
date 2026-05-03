@@ -82,9 +82,14 @@ English reading support.
 | page_number | integer nullable | Source page. |
 | created_at | text | ISO timestamp. |
 
+Current behavior:
+
+- Vocabulary entries are document-scoped when added from an active PDF.
+- Selected text can be saved as `word`, with the selected passage also stored as `source_sentence`.
+- Definitions are currently user-entered or placeholder text. ECDICT import and AI-assisted definition refinement are planned next.
+
 ## Future Indexes
 
 - SQLite FTS5 over extracted PDF chunks.
 - Vector index over chunks through `sqlite-vec` or LanceDB.
 - Unique index for vocabulary words normalized by lowercase lemma.
-

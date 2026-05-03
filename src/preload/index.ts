@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import {
   AIStreamEvent,
   CreateAnnotationInput,
+  CreateVocabularyInput,
   ReadingPartnerApi,
   RunAIActionInput,
   UpsertAIProviderInput
@@ -15,6 +16,10 @@ const api: ReadingPartnerApi = {
   createAnnotation: (input: CreateAnnotationInput) =>
     ipcRenderer.invoke('annotations:create', input),
   deleteAnnotation: (id: string) => ipcRenderer.invoke('annotations:delete', id),
+  listVocabulary: (documentId?: string | null) => ipcRenderer.invoke('vocabulary:list', documentId),
+  createVocabulary: (input: CreateVocabularyInput) =>
+    ipcRenderer.invoke('vocabulary:create', input),
+  deleteVocabulary: (id: string) => ipcRenderer.invoke('vocabulary:delete', id),
   listAIProviders: () => ipcRenderer.invoke('aiProviders:list'),
   upsertAIProvider: (input: UpsertAIProviderInput) =>
     ipcRenderer.invoke('aiProviders:upsert', input),

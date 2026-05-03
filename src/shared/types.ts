@@ -59,6 +59,24 @@ export type AIArtifactRecord = {
   createdAt: string
 }
 
+export type VocabularyRecord = {
+  id: string
+  documentId: string | null
+  word: string
+  definition: string
+  sourceSentence: string | null
+  pageNumber: number | null
+  createdAt: string
+}
+
+export type CreateVocabularyInput = {
+  documentId?: string | null
+  word: string
+  definition: string
+  sourceSentence?: string | null
+  pageNumber?: number | null
+}
+
 export type UpsertAIProviderInput = {
   id: string
   label: string
@@ -119,6 +137,9 @@ export type ReadingPartnerApi = {
   listAnnotations: (documentId: string) => Promise<AnnotationRecord[]>
   createAnnotation: (input: CreateAnnotationInput) => Promise<AnnotationRecord>
   deleteAnnotation: (id: string) => Promise<void>
+  listVocabulary: (documentId?: string | null) => Promise<VocabularyRecord[]>
+  createVocabulary: (input: CreateVocabularyInput) => Promise<VocabularyRecord>
+  deleteVocabulary: (id: string) => Promise<void>
   listAIProviders: () => Promise<AIProviderRecord[]>
   upsertAIProvider: (input: UpsertAIProviderInput) => Promise<AIProviderRecord>
   setAIProviderApiKey: (providerId: string, apiKey: string) => Promise<AIProviderRecord>

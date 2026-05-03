@@ -53,3 +53,5 @@ npm run build
 ## Current AI Flow
 
 The app can now store provider API keys through Electron `safeStorage`, run OpenAI-compatible streaming chat requests from the main process, and save AI outputs as notes attached to the selected PDF passage.
+
+The app also includes the first local vocabulary workflow: selected PDF text can be saved to the active document's vocabulary book, and vocabulary items are persisted in SQLite with source page metadata.

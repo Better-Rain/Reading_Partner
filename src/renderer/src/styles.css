@@ -341,7 +341,7 @@ button:disabled {
 
 .tab-bar {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 6px;
   border-bottom: 1px solid #d9dee8;
   background: #fff;
@@ -372,24 +372,49 @@ button:disabled {
   padding: 16px;
 }
 
-.note-composer {
+.note-composer,
+.vocab-composer {
   display: flex;
   flex-direction: column;
   gap: 10px;
   margin-bottom: 16px;
 }
 
-.note-composer textarea {
+.note-composer textarea,
+.vocab-composer textarea,
+.vocab-composer input {
   width: 100%;
-  min-height: 92px;
-  resize: vertical;
   border: 1px solid #d6deeb;
   border-radius: 8px;
   background: #fff;
   color: #1f2937;
   outline: none;
+}
+
+.note-composer textarea,
+.vocab-composer textarea {
+  min-height: 92px;
+  resize: vertical;
   padding: 10px;
   line-height: 1.5;
+}
+
+.vocab-composer input {
+  height: 38px;
+  padding: 0 10px;
+}
+
+.vocab-composer button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 8px;
+  background: #e8edf5;
+  color: #263447;
+  cursor: pointer;
+  font-weight: 700;
 }
 
 .note-actions,
@@ -414,6 +439,7 @@ button:disabled {
 }
 
 .annotation-list,
+.vocabulary-list,
 .provider-list {
   display: flex;
   flex-direction: column;
@@ -421,6 +447,7 @@ button:disabled {
 }
 
 .annotation-item,
+.vocabulary-item,
 .provider-item,
 .selected-preview,
 .ai-ready {
@@ -448,6 +475,37 @@ button:disabled {
 .annotation-item p {
   margin: 8px 0 0;
   color: #344256;
+  line-height: 1.55;
+}
+
+.vocabulary-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.vocabulary-heading strong {
+  color: #18202b;
+  font-size: 16px;
+}
+
+.vocabulary-heading span {
+  color: #6d7787;
+  font-size: 12px;
+}
+
+.vocabulary-item p {
+  margin: 8px 0 0;
+  color: #344256;
+  line-height: 1.55;
+}
+
+.vocabulary-item blockquote {
+  margin: 10px 0 0;
+  border-left: 3px solid #b8c7e5;
+  color: #4a5668;
+  padding-left: 10px;
   line-height: 1.55;
 }
 

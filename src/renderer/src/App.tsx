@@ -3,6 +3,7 @@ import type { Source } from 'react-pdf/dist/shared/types.js'
 import { Document, Page } from 'react-pdf'
 import {
   Bookmark,
+  BookMarked,
   Bot,
   ChevronLeft,
   ChevronRight,
@@ -26,10 +27,11 @@ import {
   AnnotationRecord,
   DocumentRecord,
   OpenPdfResult,
-  ProviderKeyStatus
+  ProviderKeyStatus,
+  VocabularyRecord
 } from '../../shared/types'
 
-type PanelTab = 'notes' | 'ai' | 'settings'
+type PanelTab = 'notes' | 'ai' | 'vocab' | 'settings'
 
 type SelectionState = {
   text: string
@@ -82,6 +84,7 @@ function App(): JSX.Element {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [pdfError, setPdfError] = useState<string | null>(null)
   const [annotations, setAnnotations] = useState<AnnotationRecord[]>([])
+  const [vocabulary, setVocabulary] = useState<VocabularyRecord[]>([])
   const [providers, setProviders] = useState<AIProviderRecord[]>([])
   const [keyStatus, setKeyStatus] = useState<ProviderKeyStatus[]>([])
   const [activeTab, setActiveTab] = useState<PanelTab>('notes')
@@ -148,6 +151,11 @@ function App(): JSX.Element {
     setAnnotations(list)
   }
 
+  const refreshVocabulary = async (documentId: string): Promise<void> => {
+    const list = await window.readingPartner.listVocabulary(documentId)
+    setVocabulary(list)
+  }
+
   const handleAIStreamEvent = async (event: AIStreamEvent): Promise<void> => {
     if (event.type === 'start') {
       setAiRun((current) =>
@@ -209,7 +217,7 @@ function App(): JSX.Element {
     })
     setPageNumber(1)
     setSelection(null)
-    await refreshAnnotations(document.id)
+    await Promise.all([refreshAnnotations(document.id), refreshVocabulary(document.id)])
     setStatus(`已打开 ${document.title}`)
   }
 
@@ -231,7 +239,11 @@ function App(): JSX.Element {
     })
     setPageNumber(1)
     setSelection(null)
-    await Promise.all([refreshLibrary(), refreshAnnotations(result.document.id)])
+    await Promise.all([
+      refreshLibrary(),
+      refreshAnnotations(result.document.id),
+      refreshVocabulary(result.document.id)
+    ])
     setStatus(`已导入 ${result.document.title}`)
   }
 
@@ -317,6 +329,47 @@ function App(): JSX.Element {
   const deleteAnnotation = async (id: string): Promise<void> => {
     await window.readingPartner.deleteAnnotation(id)
     setAnnotations((items) => items.filter((item) => item.id !== id))
+  }
+
+  const createVocabularyFromSelection = async (): Promise<void> => {
+    if (!activeDocument || !selection?.text) {
+      return
+    }
+
+    const word = selection.text.replace(/\s+/g, ' ').trim()
+    const created = await window.readingPartner.createVocabulary({
+      documentId: activeDocument.id,
+      word,
+      definition: '待补充释义',
+      sourceSentence: selection.text,
+      pageNumber
+    })
+
+    setVocabulary((items) => [created, ...items])
+    setSelection(null)
+    setActiveTab('vocab')
+    setStatus('已加入词汇本')
+  }
+
+  const createVocabulary = async (word: string, definition: string): Promise<void> => {
+    if (!activeDocument) {
+      return
+    }
+
+    const created = await window.readingPartner.createVocabulary({
+      documentId: activeDocument.id,
+      word,
+      definition,
+      pageNumber
+    })
+
+    setVocabulary((items) => [created, ...items])
+    setStatus('已保存词汇')
+  }
+
+  const deleteVocabulary = async (id: string): Promise<void> => {
+    await window.readingPartner.deleteVocabulary(id)
+    setVocabulary((items) => items.filter((item) => item.id !== id))
   }
 
   const updateProvider = async (provider: AIProviderRecord, enabled: boolean): Promise<void> => {
@@ -535,6 +588,10 @@ function App(): JSX.Element {
               <Sparkles size={16} />
               解释
             </button>
+            <button title="加入词汇本" onClick={() => void createVocabularyFromSelection()}>
+              <BookMarked size={16} />
+              生词
+            </button>
           </div>
         )}
       </main>
@@ -548,6 +605,10 @@ function App(): JSX.Element {
           <button className={activeTab === 'ai' ? 'active' : ''} onClick={() => setActiveTab('ai')}>
             <Bot size={16} />
             AI
+          </button>
+          <button className={activeTab === 'vocab' ? 'active' : ''} onClick={() => setActiveTab('vocab')}>
+            <BookMarked size={16} />
+            词汇
           </button>
           <button
             className={activeTab === 'settings' ? 'active' : ''}
@@ -576,6 +637,15 @@ function App(): JSX.Element {
             readyProvider={readyProvider}
             selection={selection?.text ?? null}
             onRun={(promptType) => void runAIAction(promptType)}
+          />
+        )}
+
+        {activeTab === 'vocab' && (
+          <VocabularyPanel
+            hasDocument={Boolean(activeDocument)}
+            vocabulary={vocabulary}
+            onCreate={(word, definition) => void createVocabulary(word, definition)}
+            onDelete={(id) => void deleteVocabulary(id)}
           />
         )}
 
@@ -706,6 +776,80 @@ function AiPanel({ aiRun, readyProvider, selection, onRun }: AiPanelProps): JSX.
           {aiRun.error ? <p className="error-text">{aiRun.error}</p> : <pre>{aiRun.output || '等待模型返回...'}</pre>}
         </div>
       )}
+    </div>
+  )
+}
+
+type VocabularyPanelProps = {
+  hasDocument: boolean
+  vocabulary: VocabularyRecord[]
+  onCreate: (word: string, definition: string) => void
+  onDelete: (id: string) => void
+}
+
+function VocabularyPanel({
+  hasDocument,
+  vocabulary,
+  onCreate,
+  onDelete
+}: VocabularyPanelProps): JSX.Element {
+  const [word, setWord] = useState('')
+  const [definition, setDefinition] = useState('')
+
+  const save = (): void => {
+    const nextWord = word.trim()
+    const nextDefinition = definition.trim()
+
+    if (!nextWord || !nextDefinition) {
+      return
+    }
+
+    onCreate(nextWord, nextDefinition)
+    setWord('')
+    setDefinition('')
+  }
+
+  return (
+    <div className="inspector-content">
+      <div className="vocab-composer">
+        <input
+          disabled={!hasDocument}
+          placeholder="单词或短语"
+          value={word}
+          onChange={(event) => setWord(event.target.value)}
+        />
+        <textarea
+          disabled={!hasDocument}
+          placeholder="释义、用法或你的理解"
+          value={definition}
+          onChange={(event) => setDefinition(event.target.value)}
+        />
+        <button disabled={!hasDocument || !word.trim() || !definition.trim()} onClick={save}>
+          <BookMarked size={16} />
+          保存词汇
+        </button>
+      </div>
+
+      <div className="vocabulary-list">
+        {vocabulary.length === 0 ? (
+          <p className="muted">选中 PDF 里的单词或短语后点“生词”，也可以在这里手动添加。</p>
+        ) : (
+          vocabulary.map((item) => (
+            <article className="vocabulary-item" key={item.id}>
+              <div className="vocabulary-heading">
+                <strong>{item.word}</strong>
+                {item.pageNumber && <span>第 {item.pageNumber} 页</span>}
+              </div>
+              <p>{item.definition}</p>
+              {item.sourceSentence && <blockquote>{item.sourceSentence}</blockquote>}
+              <button className="text-button" onClick={() => onDelete(item.id)}>
+                <Trash2 size={14} />
+                删除
+              </button>
+            </article>
+          ))
+        )}
+      </div>
     </div>
   )
 }

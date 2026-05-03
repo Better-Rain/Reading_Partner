@@ -98,6 +98,22 @@ Current implementation:
 - On completion, the main process stores an `ai_artifacts` row.
 - The renderer also creates a visible note annotation from the returned AI artifact.
 
+## Vocabulary Design
+
+Vocabulary is local-first and document-aware.
+
+Current implementation:
+
+- The main process owns vocabulary CRUD through SQLite.
+- The renderer can add selected PDF text to the active document's vocabulary book.
+- Vocabulary rows store the term, definition, source sentence, source page, and source document.
+
+Planned implementation:
+
+- Import ECDICT into a local lookup table.
+- Use local dictionary lookup before spending model tokens.
+- Let AI refine or expand vocabulary definitions only when requested.
+
 ## Security Notes
 
 - API keys must not be stored in renderer localStorage.
