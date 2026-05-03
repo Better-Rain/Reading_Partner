@@ -180,8 +180,10 @@ button {
 
 .reader-column {
   display: flex;
+  min-height: 0;
   min-width: 0;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .reader-toolbar {
@@ -298,12 +300,19 @@ button:disabled {
   min-width: 100%;
   min-height: 100%;
   box-sizing: content-box;
-  padding: 128px 128px 360px;
-  text-align: center;
+  padding: 128px 128px 0;
+}
+
+.pdf-stage::after {
+  display: block;
+  height: max(420px, 55vh);
+  content: "";
 }
 
 .pdf-stage .react-pdf__Document {
-  display: inline-block;
+  display: block;
+  width: max-content;
+  margin: 0 auto;
   text-align: left;
 }
 
@@ -397,11 +406,14 @@ button:disabled {
   height: 36px;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
+  min-width: 0;
   border-radius: 8px;
   background: transparent;
   color: #4d596b;
   cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 .tab-bar button.active {
