@@ -741,6 +741,70 @@ button:disabled {
   flex: 0 0 auto;
 }
 
+.vocab-tools {
+  gap: 12px;
+}
+
+.dictionary-lookup-panel,
+.vocabulary-search-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  border: 1px solid #dde3ed;
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+}
+
+.vocab-tool-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.vocab-tool-heading strong {
+  color: #1f2937;
+  font-size: 14px;
+}
+
+.vocab-tool-heading span {
+  color: #6d7787;
+  font-size: 12px;
+}
+
+.dictionary-search-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.dictionary-entry-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-radius: 8px;
+  background: #f6f8fb;
+  padding: 10px;
+}
+
+.dictionary-entry-card button {
+  align-self: stretch;
+}
+
+.dictionary-exchange {
+  display: flex;
+  gap: 8px;
+  color: #4a5668;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.dictionary-exchange strong {
+  flex: 0 0 auto;
+  color: #1d4f91;
+}
+
 .notes-panel .annotation-list {
   flex: 1;
   min-height: 0;
@@ -774,6 +838,7 @@ button:disabled {
 .vocab-composer textarea,
 .vocab-composer input,
 .vocab-tools input,
+.dictionary-search-form input,
 .search-form input,
 .document-qa textarea,
 .chat-composer textarea,
@@ -809,6 +874,7 @@ button:disabled {
 
 .vocab-composer button,
 .vocab-tools button,
+.dictionary-search-form button,
 .search-form button,
 .document-qa button,
 .chat-composer button,

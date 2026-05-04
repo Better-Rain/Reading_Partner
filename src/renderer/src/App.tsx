@@ -40,6 +40,8 @@ import {
   AIPromptType,
   AIStreamEvent,
   AnnotationRecord,
+  DictionaryEntryRecord,
+  DictionaryLookupResult,
   DocumentSearchResult,
   DocumentRecord,
   OpenPdfResult,
@@ -1296,6 +1298,35 @@ function App(): JSX.Element {
     }
   }
 
+  const addDictionaryEntryToVocabulary = async (entry: DictionaryEntryRecord): Promise<void> => {
+    if (!activeDocument) {
+      return
+    }
+
+    const exists = vocabulary.some(
+      (item) => item.word.trim().toLocaleLowerCase() === entry.word.trim().toLocaleLowerCase()
+    )
+
+    if (exists) {
+      setStatus(`“${entry.word}” 已在当前 PDF 生词本中`)
+      return
+    }
+
+    try {
+      const created = await window.readingPartner.createVocabulary({
+        documentId: activeDocument.id,
+        word: entry.word,
+        definition: makeDefinitionFromDictionary(entry),
+        pageNumber: null
+      })
+
+      setVocabulary((items) => [created, ...items])
+      setStatus(`已将“${entry.word}”加入当前 PDF 生词本`)
+    } catch (error) {
+      setStatus(`加入生词本失败：${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
   const importDictionary = async (): Promise<void> => {
     try {
       const result = await window.readingPartner.importDictionaryCsvDialog()
@@ -1856,6 +1887,7 @@ function App(): JSX.Element {
             hasDocument={Boolean(activeDocument)}
             dictionarySources={dictionarySources}
             vocabulary={vocabulary}
+            onAddDictionaryEntry={(entry) => void addDictionaryEntryToVocabulary(entry)}
             onDefine={(item) => void defineVocabularyWithAI(item)}
             onDelete={(id) => void deleteVocabulary(id)}
             onImportDictionary={() => void importDictionary()}
@@ -2399,6 +2431,7 @@ type VocabularyPanelProps = {
   dictionarySources: DictionarySourceRecord[]
   hasDocument: boolean
   vocabulary: VocabularyRecord[]
+  onAddDictionaryEntry: (entry: DictionaryEntryRecord) => void
   onDefine: (item: VocabularyRecord) => void
   onDelete: (id: string) => void
   onImportDictionary: () => void
@@ -2485,15 +2518,54 @@ function VocabularyDefinition({ definition }: { definition: string }): JSX.Eleme
   )
 }
 
+function DictionaryEntryCard({
+  entry,
+  hasDocument,
+  isSaved,
+  onAdd
+}: {
+  entry: DictionaryEntryRecord
+  hasDocument: boolean
+  isSaved: boolean
+  onAdd: (entry: DictionaryEntryRecord) => void
+}): JSX.Element {
+  const definition = makeDefinitionFromDictionary(entry)
+
+  return (
+    <article className="dictionary-entry-card">
+      <div className="vocabulary-heading">
+        <strong>{entry.word}</strong>
+        <span>{entry.source}</span>
+      </div>
+      <VocabularyDefinition definition={definition} />
+      {entry.exchange && (
+        <div className="dictionary-exchange">
+          <strong>词形</strong>
+          <span>{entry.exchange}</span>
+        </div>
+      )}
+      <button disabled={!hasDocument || isSaved} onClick={() => onAdd(entry)}>
+        <BookMarked size={15} />
+        {!hasDocument ? '先打开 PDF' : isSaved ? '已在生词本' : '加入本 PDF 生词'}
+      </button>
+    </article>
+  )
+}
+
 function VocabularyPanel({
   dictionarySources,
   hasDocument,
   vocabulary,
+  onAddDictionaryEntry,
   onDefine,
   onDelete,
   onImportDictionary
 }: VocabularyPanelProps): JSX.Element {
   const [query, setQuery] = useState('')
+  const [dictionaryQuery, setDictionaryQuery] = useState('')
+  const [dictionaryLookup, setDictionaryLookup] = useState<DictionaryLookupResult | null>(null)
+  const [isDictionarySearching, setIsDictionarySearching] = useState(false)
+  const [dictionaryError, setDictionaryError] = useState<string | null>(null)
   const normalizedQuery = query.trim().toLocaleLowerCase()
   const filteredVocabulary = normalizedQuery
     ? vocabulary.filter((item) =>
@@ -2503,24 +2575,92 @@ function VocabularyPanel({
           .includes(normalizedQuery)
       )
     : vocabulary
+  const savedWords = useMemo(
+    () => new Set(vocabulary.map((item) => item.word.trim().toLocaleLowerCase())),
+    [vocabulary]
+  )
+
+  const lookupDictionaryEntry = async (): Promise<void> => {
+    const trimmed = dictionaryQuery.trim()
+
+    if (!trimmed) {
+      setDictionaryLookup(null)
+      setDictionaryError(null)
+      return
+    }
+
+    setIsDictionarySearching(true)
+    setDictionaryError(null)
+
+    try {
+      setDictionaryLookup(await window.readingPartner.lookupDictionary(trimmed))
+    } catch (error) {
+      setDictionaryError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setIsDictionarySearching(false)
+    }
+  }
 
   return (
     <div className="inspector-content vocabulary-panel">
       <div className="vocab-tools">
-        <button className="secondary-action" onClick={onImportDictionary}>
-          <Upload size={16} />
-          导入词典
-        </button>
-        <p className="dictionary-status">
-          {dictionarySources.length > 0
-            ? `已加载 ${dictionarySources.length} 个本地词典`
-            : '尚未加载本地词典'}
-        </p>
-        <input
-          placeholder="搜索词汇、释义或原句"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
+        <section className="dictionary-lookup-panel">
+          <div className="vocab-tool-heading">
+            <strong>本地词典</strong>
+            <button className="secondary-action" onClick={onImportDictionary}>
+              <Upload size={16} />
+              导入词典
+            </button>
+          </div>
+          <p className="dictionary-status">
+            {dictionarySources.length > 0
+              ? `已加载 ${dictionarySources.length} 个本地词典`
+              : '尚未加载本地词典'}
+          </p>
+          <form
+            className="dictionary-search-form"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void lookupDictionaryEntry()
+            }}
+          >
+            <input
+              placeholder="查询任意单词或短语"
+              value={dictionaryQuery}
+              onChange={(event) => setDictionaryQuery(event.target.value)}
+            />
+            <button disabled={!dictionaryQuery.trim() || isDictionarySearching} type="submit">
+              <Search size={15} />
+              {isDictionarySearching ? '查询中' : '查询'}
+            </button>
+          </form>
+          {dictionaryError ? (
+            <p className="error-text">{dictionaryError}</p>
+          ) : dictionaryLookup?.entry ? (
+            <DictionaryEntryCard
+              entry={dictionaryLookup.entry}
+              hasDocument={hasDocument}
+              isSaved={savedWords.has(dictionaryLookup.entry.word.trim().toLocaleLowerCase())}
+              onAdd={onAddDictionaryEntry}
+            />
+          ) : dictionaryLookup ? (
+            <p className="muted">本地词典中没有找到“{dictionaryLookup.query}”。</p>
+          ) : (
+            <p className="muted">可以直接查词，再按需加入当前 PDF 生词本。</p>
+          )}
+        </section>
+
+        <section className="vocabulary-search-panel">
+          <div className="vocab-tool-heading">
+            <strong>本 PDF 生词</strong>
+            <span>{vocabulary.length} 条</span>
+          </div>
+          <input
+            placeholder="搜索已加入的生词、释义或原句"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </section>
       </div>
 
       <div className="vocabulary-list">
