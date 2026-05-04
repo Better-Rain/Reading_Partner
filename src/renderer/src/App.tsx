@@ -867,6 +867,7 @@ function App(): JSX.Element {
   const [aiRun, setAiRun] = useState<AIRunState | null>(null)
   const aiRunRef = useRef<AIRunState | null>(null)
   const readerSurfaceRef = useRef<HTMLDivElement | null>(null)
+  const pendingReaderViewportResetRef = useRef(false)
   const panStateRef = useRef<PanState | null>(null)
   const suppressSelectionRef = useRef(false)
 
@@ -1068,6 +1069,34 @@ function App(): JSX.Element {
 
   const pushAnnotationUndo = (action: AnnotationUndoAction): void => {
     setAnnotationUndoStack((items) => [...items.slice(-39), action])
+  }
+
+  const resetReaderViewport = (): void => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const surface = readerSurfaceRef.current
+
+        if (!surface) {
+          return
+        }
+
+        surface.scrollLeft = Math.max(0, (surface.scrollWidth - surface.clientWidth) / 2)
+        surface.scrollTop = 0
+      })
+    })
+  }
+
+  const requestReaderViewportReset = (): void => {
+    pendingReaderViewportResetRef.current = true
+  }
+
+  const resetReaderViewportAfterRender = (): void => {
+    if (!pendingReaderViewportResetRef.current) {
+      return
+    }
+
+    pendingReaderViewportResetRef.current = false
+    resetReaderViewport()
   }
 
   const refreshAIConversations = async (documentId: string): Promise<void> => {
@@ -1280,6 +1309,7 @@ function App(): JSX.Element {
     const data = await window.readingPartner.readPdf(document.id)
     const nextUrl = toPdfBlobUrl(data)
     setActiveDocument(document)
+    requestReaderViewportReset()
     setPdfUrl((currentUrl) => {
       if (currentUrl) {
         URL.revokeObjectURL(currentUrl)
@@ -1314,6 +1344,7 @@ function App(): JSX.Element {
     const nextUrl = toPdfBlobUrl(result.data)
     setPdfError(null)
     setActiveDocument(result.document)
+    requestReaderViewportReset()
     setPdfUrl((currentUrl) => {
       if (currentUrl) {
         URL.revokeObjectURL(currentUrl)
@@ -2008,7 +2039,10 @@ function App(): JSX.Element {
               className="icon-button"
               disabled={!activeDocument || pageNumber <= 1}
               title="上一页"
-              onClick={() => setPageNumber((value) => Math.max(1, value - 1))}
+              onClick={() => {
+                requestReaderViewportReset()
+                setPageNumber((value) => Math.max(1, value - 1))
+              }}
             >
               <ChevronLeft size={18} />
             </button>
@@ -2022,6 +2056,7 @@ function App(): JSX.Element {
                 onChange={(event) => {
                   const next = Number(event.target.value)
                   if (Number.isFinite(next)) {
+                    requestReaderViewportReset()
                     setPageNumber(Math.min(Math.max(1, next), pageCount || 1))
                   }
                 }}
@@ -2032,7 +2067,10 @@ function App(): JSX.Element {
               className="icon-button"
               disabled={!activeDocument || pageNumber >= pageCount}
               title="下一页"
-              onClick={() => setPageNumber((value) => Math.min(pageCount, value + 1))}
+              onClick={() => {
+                requestReaderViewportReset()
+                setPageNumber((value) => Math.min(pageCount, value + 1))
+              }}
             >
               <ChevronRight size={18} />
             </button>
@@ -2131,6 +2169,7 @@ function App(): JSX.Element {
                       setPdfError(error.message)
                       setStatus(`PDF 页面渲染失败：${error.message}`)
                     }}
+                    onRenderSuccess={resetReaderViewportAfterRender}
                   />
                   <AnnotationOverlay
                     annotations={currentPageAnnotations}
@@ -2258,6 +2297,7 @@ function App(): JSX.Element {
             onExportReadingMarks={() => void exportReadingMarks()}
             onImportReadingMarks={() => void importReadingMarks()}
             onJump={(annotation) => {
+              requestReaderViewportReset()
               setPageNumber(annotation.pageNumber)
               setStatus(`已跳转到第 ${annotation.pageNumber} 页`)
             }}
@@ -2280,6 +2320,7 @@ function App(): JSX.Element {
                 query: searchQuery,
                 result
               })
+              requestReaderViewportReset()
               setPageNumber(result.pageNumber)
               setStatus(`已跳转到第 ${result.pageNumber} 页，正在定位搜索片段`)
             }}

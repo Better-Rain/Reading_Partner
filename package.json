@@ -8,9 +8,36 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
+    "dist": "npm run build && electron-builder --win portable",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit"
+  },
+  "build": {
+    "appId": "com.readingpartner.app",
+    "productName": "Reading Partner",
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/sql.js/dist/sql-wasm.wasm"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    }
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -30,6 +57,7 @@
     "@types/sql.js": "^1.4.9",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^33.2.1",
+    "electron-builder": "^26.8.1",
     "electron-vite": "^5.0.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.6"
