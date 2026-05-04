@@ -12,6 +12,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  Eye,
   FileText,
   Highlighter,
   Hand,
@@ -20,6 +21,7 @@ import {
   Maximize2,
   MessageSquarePlus,
   Minus,
+  MousePointer2,
   Pencil,
   Plus,
   Search,
@@ -47,6 +49,7 @@ import {
 } from '../../shared/types'
 
 type PanelTab = 'notes' | 'search' | 'ai' | 'vocab' | 'settings'
+type AnnotationInteractionMode = 'inspect' | 'select'
 
 type SelectionState = {
   text: string
@@ -445,18 +448,25 @@ function MarkdownContent({ text }: { text: string }): JSX.Element {
 
 function AnnotationOverlay({
   annotations,
+  interactionMode,
   scale
 }: {
   annotations: AnnotationRecord[]
+  interactionMode: AnnotationInteractionMode
   scale: number
 }): JSX.Element {
   const [hoveredAnnotation, setHoveredAnnotation] = useState<HoveredAnnotation | null>(null)
+  const canInspect = interactionMode === 'inspect'
   const visualItems = annotations.map((annotation) => ({
     annotation,
     rects: parseAnnotationRects(annotation.rectsJson)
   }))
   const pageMarkers = visualItems.filter(({ annotation, rects }) => annotation.type === 'bookmark' || rects.length === 0)
   const showTooltip = (annotation: AnnotationRecord, event: ReactMouseEvent): void => {
+    if (!canInspect) {
+      return
+    }
+
     const layerRect = event.currentTarget
       .closest('.pdf-annotation-layer')
       ?.getBoundingClientRect()
@@ -470,7 +480,10 @@ function AnnotationOverlay({
   const hideTooltip = (): void => setHoveredAnnotation(null)
 
   return (
-    <div className="pdf-annotation-layer" aria-hidden="true">
+    <div
+      className={canInspect ? 'pdf-annotation-layer is-inspecting' : 'pdf-annotation-layer is-selecting'}
+      aria-hidden="true"
+    >
       {visualItems.flatMap(({ annotation, rects }) =>
         rects.map((rect, rectIndex) => {
           const verticalInset = annotation.type === 'highlight' ? Math.min(3, rect.height * scale * 0.18) : 0
@@ -533,7 +546,7 @@ function AnnotationOverlay({
           }}
         />
       ))}
-      {hoveredAnnotation && (
+      {canInspect && hoveredAnnotation && (
         <div
           className="pdf-annotation-tooltip"
           style={{
@@ -577,6 +590,8 @@ function App(): JSX.Element {
   const [isPanMode, setIsPanMode] = useState(false)
   const [isPanning, setIsPanning] = useState(false)
   const [isWindowMaximized, setIsWindowMaximized] = useState(false)
+  const [annotationInteractionMode, setAnnotationInteractionMode] =
+    useState<AnnotationInteractionMode>('inspect')
   const [selectedAnnotationColor, setSelectedAnnotationColor] = useState(annotationColorPresets[0].value)
   const [draftNote, setDraftNote] = useState('')
   const [selectionNoteDraft, setSelectionNoteDraft] = useState('')
@@ -1281,26 +1296,6 @@ function App(): JSX.Element {
     }
   }
 
-  const createVocabulary = async (word: string, definition: string): Promise<void> => {
-    if (!activeDocument) {
-      return
-    }
-
-    try {
-      const created = await window.readingPartner.createVocabulary({
-        documentId: activeDocument.id,
-        word,
-        definition,
-        pageNumber
-      })
-
-      setVocabulary((items) => [created, ...items])
-      setStatus('已保存词汇')
-    } catch (error) {
-      setStatus(`保存词汇失败：${error instanceof Error ? error.message : String(error)}`)
-    }
-  }
-
   const importDictionary = async (): Promise<void> => {
     try {
       const result = await window.readingPartner.importDictionaryCsvDialog()
@@ -1524,6 +1519,26 @@ function App(): JSX.Element {
             <span>{status}</span>
           </div>
           <div className="toolbar-controls">
+            <div className="annotation-mode-toggle" aria-label="批注交互模式">
+              <button
+                className={annotationInteractionMode === 'inspect' ? 'active' : ''}
+                disabled={!activeDocument}
+                title="查看批注"
+                onClick={() => setAnnotationInteractionMode('inspect')}
+              >
+                <Eye size={15} />
+                查看
+              </button>
+              <button
+                className={annotationInteractionMode === 'select' ? 'active' : ''}
+                disabled={!activeDocument}
+                title="文本选择"
+                onClick={() => setAnnotationInteractionMode('select')}
+              >
+                <MousePointer2 size={15} />
+                选择
+              </button>
+            </div>
             <div className="reader-color-palette" aria-label="批注颜色">
               {annotationColorPresets.map((preset) => (
                 <button
@@ -1664,7 +1679,11 @@ function App(): JSX.Element {
                       setStatus(`PDF 页面渲染失败：${error.message}`)
                     }}
                   />
-                  <AnnotationOverlay annotations={currentPageAnnotations} scale={scale} />
+                  <AnnotationOverlay
+                    annotations={currentPageAnnotations}
+                    interactionMode={annotationInteractionMode}
+                    scale={scale}
+                  />
                 </div>
               </Document>
             </div>
@@ -1837,7 +1856,6 @@ function App(): JSX.Element {
             hasDocument={Boolean(activeDocument)}
             dictionarySources={dictionarySources}
             vocabulary={vocabulary}
-            onCreate={(word, definition) => void createVocabulary(word, definition)}
             onDefine={(item) => void defineVocabularyWithAI(item)}
             onDelete={(id) => void deleteVocabulary(id)}
             onImportDictionary={() => void importDictionary()}
@@ -2381,40 +2399,114 @@ type VocabularyPanelProps = {
   dictionarySources: DictionarySourceRecord[]
   hasDocument: boolean
   vocabulary: VocabularyRecord[]
-  onCreate: (word: string, definition: string) => void
   onDefine: (item: VocabularyRecord) => void
   onDelete: (id: string) => void
   onImportDictionary: () => void
+}
+
+type VocabularyDefinitionPart = {
+  label: string
+  text: string
+}
+
+type VocabularyDefinitionView = {
+  label: string
+  phonetic: string | null
+  parts: VocabularyDefinitionPart[]
+  tags: string[]
+}
+
+const partOfSpeechPattern =
+  /(?:^|\s)(a\.|adj\.|n\.|v\.|vt\.|vi\.|adv\.|ad\.|prep\.|conj\.|pron\.|num\.|int\.)\s+/gi
+
+const parseVocabularyDefinition = (definition: string): VocabularyDefinitionView => {
+  const normalized = definition.replace(/\r\n/g, '\n').replace(/\s+/g, ' ').trim()
+  const labelMatch = normalized.match(/^([^：:]{1,12})[：:]\s*/)
+  const label = labelMatch?.[1] ?? '释义'
+  let content = labelMatch ? normalized.slice(labelMatch[0].length).trim() : normalized
+  const phoneticMatch = content.match(/^\*?\s*(\[[^\]]+\])/)
+  const phonetic = phoneticMatch?.[1] ?? null
+
+  if (phoneticMatch) {
+    content = content.slice(phoneticMatch[0].length).trim()
+  }
+
+  content = content.replace(/^-?\d+\s*/, '').trim()
+  const tags = Array.from(content.matchAll(/\[[^\]]+\]|\([^)]*\)$/g)).map((item) => item[0])
+  const withoutTags = content.replace(/\[[^\]]+\]|\([^)]*\)$/g, ' ').replace(/\s+/g, ' ').trim()
+  const matches = Array.from(withoutTags.matchAll(partOfSpeechPattern))
+  const parts: VocabularyDefinitionPart[] = []
+
+  if (matches.length > 0) {
+    matches.forEach((match, index) => {
+      const next = matches[index + 1]
+      const start = (match.index ?? 0) + match[0].length
+      const end = next?.index ?? withoutTags.length
+      const text = withoutTags.slice(start, end).trim()
+
+      if (text) {
+        parts.push({ label: match[1], text })
+      }
+    })
+  }
+
+  if (parts.length === 0 && withoutTags) {
+    parts.push({ label, text: withoutTags })
+  }
+
+  return { label, phonetic, parts, tags }
+}
+
+function VocabularyDefinition({ definition }: { definition: string }): JSX.Element {
+  const parsed = parseVocabularyDefinition(definition)
+
+  return (
+    <div className="vocabulary-definition">
+      <div className="vocabulary-definition-meta">
+        <span>{parsed.label}</span>
+        {parsed.phonetic && <code>{parsed.phonetic}</code>}
+      </div>
+      <div className="vocabulary-definition-parts">
+        {parsed.parts.map((part, index) => (
+          <div className="vocabulary-definition-part" key={`${part.label}-${index}`}>
+            <strong>{part.label}</strong>
+            <span>{part.text}</span>
+          </div>
+        ))}
+      </div>
+      {parsed.tags.length > 0 && (
+        <div className="vocabulary-definition-tags">
+          {parsed.tags.map((tag) => (
+            <span key={tag}>{tag}</span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function VocabularyPanel({
   dictionarySources,
   hasDocument,
   vocabulary,
-  onCreate,
   onDefine,
   onDelete,
   onImportDictionary
 }: VocabularyPanelProps): JSX.Element {
-  const [word, setWord] = useState('')
-  const [definition, setDefinition] = useState('')
-
-  const save = (): void => {
-    const nextWord = word.trim()
-    const nextDefinition = definition.trim()
-
-    if (!nextWord || !nextDefinition) {
-      return
-    }
-
-    onCreate(nextWord, nextDefinition)
-    setWord('')
-    setDefinition('')
-  }
+  const [query, setQuery] = useState('')
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const filteredVocabulary = normalizedQuery
+    ? vocabulary.filter((item) =>
+        [item.word, item.definition, item.sourceSentence ?? '']
+          .join(' ')
+          .toLocaleLowerCase()
+          .includes(normalizedQuery)
+      )
+    : vocabulary
 
   return (
-    <div className="inspector-content">
-      <div className="vocab-composer">
+    <div className="inspector-content vocabulary-panel">
+      <div className="vocab-tools">
         <button className="secondary-action" onClick={onImportDictionary}>
           <Upload size={16} />
           导入词典
@@ -2425,34 +2517,25 @@ function VocabularyPanel({
             : '尚未加载本地词典'}
         </p>
         <input
-          disabled={!hasDocument}
-          placeholder="单词或短语"
-          value={word}
-          onChange={(event) => setWord(event.target.value)}
+          placeholder="搜索词汇、释义或原句"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
         />
-        <textarea
-          disabled={!hasDocument}
-          placeholder="释义、用法或你的理解"
-          value={definition}
-          onChange={(event) => setDefinition(event.target.value)}
-        />
-        <button disabled={!hasDocument || !word.trim() || !definition.trim()} onClick={save}>
-          <BookMarked size={16} />
-          保存词汇
-        </button>
       </div>
 
       <div className="vocabulary-list">
         {vocabulary.length === 0 ? (
-          <p className="muted">选中 PDF 里的单词或短语后点“生词”，也可以在这里手动添加。</p>
+          <p className="muted">选中 PDF 里的单词或短语后点击“生词”，词条会出现在这里。</p>
+        ) : filteredVocabulary.length === 0 ? (
+          <p className="muted">没有匹配的词汇。</p>
         ) : (
-          vocabulary.map((item) => (
+          filteredVocabulary.map((item) => (
             <article className="vocabulary-item" key={item.id}>
               <div className="vocabulary-heading">
                 <strong>{item.word}</strong>
                 {item.pageNumber && <span>第 {item.pageNumber} 页</span>}
               </div>
-              <p>{item.definition}</p>
+              <VocabularyDefinition definition={item.definition} />
               {item.sourceSentence && <blockquote>{item.sourceSentence}</blockquote>}
               <button className="text-button" disabled={!hasDocument} onClick={() => onDefine(item)}>
                 <Sparkles size={14} />
