@@ -788,6 +788,15 @@ button:disabled {
   padding: 10px;
 }
 
+.dictionary-suggestion-list {
+  display: flex;
+  max-height: 340px;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
 .dictionary-entry-card button {
   align-self: stretch;
 }

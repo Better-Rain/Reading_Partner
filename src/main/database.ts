@@ -258,6 +258,7 @@ const toDictionarySource = (row: DictionarySourceRow): DictionarySourceRecord =>
 })
 
 const normalizeDictionaryWord = (word: string): string => word.trim().toLocaleLowerCase()
+const escapeSqlLikePattern = (value: string): string => value.replace(/[\\%_]/g, (match) => `\\${match}`)
 const questionStopWords = new Set([
   'a',
   'an',
@@ -793,6 +794,50 @@ export class ReadingPartnerDatabase {
     )
 
     return row ? toDictionaryEntry(row) : null
+  }
+
+  suggestDictionary(query: string, limit = 8): DictionaryEntryRecord[] {
+    const normalized = normalizeDictionaryWord(query)
+
+    if (!normalized) {
+      return []
+    }
+
+    const cappedLimit = Math.min(20, Math.max(1, Math.floor(limit)))
+    const pattern = escapeSqlLikePattern(normalized)
+    const prefixRows = this.query<DictionaryEntryRow>(
+      `select * from dictionary_entries
+       where normalized_word like ? escape '\\'
+       order by length(normalized_word) asc, normalized_word asc
+       limit ?`,
+      [`${pattern}%`, cappedLimit]
+    )
+    const entries = prefixRows.map(toDictionaryEntry)
+    const seen = new Set(entries.map((entry) => entry.word.toLocaleLowerCase()))
+
+    if (entries.length >= cappedLimit) {
+      return entries
+    }
+
+    const containsRows = this.query<DictionaryEntryRow>(
+      `select * from dictionary_entries
+       where normalized_word like ? escape '\\'
+         and normalized_word not like ? escape '\\'
+       order by length(normalized_word) asc, normalized_word asc
+       limit ?`,
+      [`%${pattern}%`, `${pattern}%`, cappedLimit - entries.length]
+    )
+
+    for (const entry of containsRows.map(toDictionaryEntry)) {
+      const key = entry.word.toLocaleLowerCase()
+
+      if (!seen.has(key)) {
+        entries.push(entry)
+        seen.add(key)
+      }
+    }
+
+    return entries
   }
 
   importDictionaryEntries(entries: DictionaryEntryInput[]): { imported: number; skipped: number } {

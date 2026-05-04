@@ -123,13 +123,7 @@ export class StarDictSource {
     this.dictPath = `${basePath}.dict`
   }
 
-  lookup(query: string): DictionaryEntryRecord | null {
-    const entry = findIdxEntry(this.idx, this.positions, query)
-
-    if (!entry) {
-      return null
-    }
-
+  private makeRecord(entry: { word: string; offset: number; size: number }): DictionaryEntryRecord {
     const file = openSync(this.dictPath, 'r')
     const buffer = Buffer.alloc(entry.size)
 
@@ -153,6 +147,54 @@ export class StarDictSource {
       source: this.ifoPath,
       updatedAt: now
     }
+  }
+
+  lookup(query: string): DictionaryEntryRecord | null {
+    const entry = findIdxEntry(this.idx, this.positions, query)
+
+    return entry ? this.makeRecord(entry) : null
+  }
+
+  suggest(query: string, limit = 8): DictionaryEntryRecord[] {
+    const normalized = normalize(query)
+
+    if (!normalized) {
+      return []
+    }
+
+    const cappedLimit = Math.min(20, Math.max(1, Math.floor(limit)))
+    const results: DictionaryEntryRecord[] = []
+    let low = 0
+    let high = this.positions.length - 1
+    let start = this.positions.length
+
+    while (low <= high) {
+      const middle = Math.floor((low + high) / 2)
+      const entry = readEntryAt(this.idx, this.positions[middle] ?? 0)
+
+      if (!entry) {
+        break
+      }
+
+      if (normalize(entry.word) >= normalized) {
+        start = middle
+        high = middle - 1
+      } else {
+        low = middle + 1
+      }
+    }
+
+    for (let index = start; index < this.positions.length && results.length < cappedLimit; index += 1) {
+      const entry = readEntryAt(this.idx, this.positions[index] ?? 0)
+
+      if (!entry || !normalize(entry.word).startsWith(normalized)) {
+        break
+      }
+
+      results.push(this.makeRecord(entry))
+    }
+
+    return results
   }
 }
 

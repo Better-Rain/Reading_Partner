@@ -169,6 +169,11 @@ export type DictionaryLookupResult = {
   entry: DictionaryEntryRecord | null
 }
 
+export type DictionarySuggestionResult = {
+  query: string
+  entries: DictionaryEntryRecord[]
+}
+
 export type DictionarySourceRecord = {
   id: string
   type: 'csv' | 'stardict'
@@ -278,6 +283,7 @@ export type ReadingPartnerApi = {
   ) => Promise<VocabularyRecord>
   deleteVocabulary: (id: string) => Promise<void>
   lookupDictionary: (query: string) => Promise<DictionaryLookupResult>
+  suggestDictionary: (query: string, limit?: number) => Promise<DictionarySuggestionResult>
   listDictionarySources: () => Promise<DictionarySourceRecord[]>
   importDictionaryCsvDialog: () => Promise<ImportDictionaryResult | null>
   listAIProviders: () => Promise<AIProviderRecord[]>

@@ -41,7 +41,6 @@ import {
   AIStreamEvent,
   AnnotationRecord,
   DictionaryEntryRecord,
-  DictionaryLookupResult,
   DocumentSearchResult,
   DocumentRecord,
   OpenPdfResult,
@@ -2563,7 +2562,8 @@ function VocabularyPanel({
 }: VocabularyPanelProps): JSX.Element {
   const [query, setQuery] = useState('')
   const [dictionaryQuery, setDictionaryQuery] = useState('')
-  const [dictionaryLookup, setDictionaryLookup] = useState<DictionaryLookupResult | null>(null)
+  const [dictionarySuggestions, setDictionarySuggestions] = useState<DictionaryEntryRecord[]>([])
+  const [hasDictionarySearched, setHasDictionarySearched] = useState(false)
   const [isDictionarySearching, setIsDictionarySearching] = useState(false)
   const [dictionaryError, setDictionaryError] = useState<string | null>(null)
   const normalizedQuery = query.trim().toLocaleLowerCase()
@@ -2580,26 +2580,54 @@ function VocabularyPanel({
     [vocabulary]
   )
 
-  const lookupDictionaryEntry = async (): Promise<void> => {
+  useEffect(() => {
     const trimmed = dictionaryQuery.trim()
 
     if (!trimmed) {
-      setDictionaryLookup(null)
+      setDictionarySuggestions([])
       setDictionaryError(null)
+      setHasDictionarySearched(false)
+      setIsDictionarySearching(false)
       return
     }
 
     setIsDictionarySearching(true)
-    setDictionaryError(null)
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      void window.readingPartner
+        .suggestDictionary(trimmed, 8)
+        .then((result) => {
+          if (cancelled) {
+            return
+          }
 
-    try {
-      setDictionaryLookup(await window.readingPartner.lookupDictionary(trimmed))
-    } catch (error) {
-      setDictionaryError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setIsDictionarySearching(false)
+          setDictionarySuggestions(result.entries)
+          setHasDictionarySearched(true)
+          setDictionaryError(null)
+        })
+        .catch((error) => {
+          if (cancelled) {
+            return
+          }
+
+          setDictionarySuggestions([])
+          setHasDictionarySearched(true)
+          setDictionaryError(error instanceof Error ? error.message : String(error))
+        })
+        .finally(() => {
+          if (cancelled) {
+            return
+          }
+
+          setIsDictionarySearching(false)
+        })
+    }, 180)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
     }
-  }
+  }, [dictionaryQuery])
 
   return (
     <div className="inspector-content vocabulary-panel">
@@ -2621,7 +2649,6 @@ function VocabularyPanel({
             className="dictionary-search-form"
             onSubmit={(event) => {
               event.preventDefault()
-              void lookupDictionaryEntry()
             }}
           >
             <input
@@ -2629,24 +2656,29 @@ function VocabularyPanel({
               value={dictionaryQuery}
               onChange={(event) => setDictionaryQuery(event.target.value)}
             />
-            <button disabled={!dictionaryQuery.trim() || isDictionarySearching} type="submit">
+            <button disabled type="submit">
               <Search size={15} />
-              {isDictionarySearching ? '查询中' : '查询'}
+              {isDictionarySearching ? '联想中' : '自动联想'}
             </button>
           </form>
           {dictionaryError ? (
             <p className="error-text">{dictionaryError}</p>
-          ) : dictionaryLookup?.entry ? (
-            <DictionaryEntryCard
-              entry={dictionaryLookup.entry}
-              hasDocument={hasDocument}
-              isSaved={savedWords.has(dictionaryLookup.entry.word.trim().toLocaleLowerCase())}
-              onAdd={onAddDictionaryEntry}
-            />
-          ) : dictionaryLookup ? (
-            <p className="muted">本地词典中没有找到“{dictionaryLookup.query}”。</p>
+          ) : dictionarySuggestions.length > 0 ? (
+            <div className="dictionary-suggestion-list">
+              {dictionarySuggestions.map((entry) => (
+                <DictionaryEntryCard
+                  entry={entry}
+                  hasDocument={hasDocument}
+                  isSaved={savedWords.has(entry.word.trim().toLocaleLowerCase())}
+                  key={entry.id}
+                  onAdd={onAddDictionaryEntry}
+                />
+              ))}
+            </div>
+          ) : hasDictionarySearched ? (
+            <p className="muted">本地词典中没有找到“{dictionaryQuery.trim()}”。</p>
           ) : (
-            <p className="muted">可以直接查词，再按需加入当前 PDF 生词本。</p>
+            <p className="muted">输入时会自动联想本地词典候选，再按需加入当前 PDF 生词本。</p>
           )}
         </section>
 

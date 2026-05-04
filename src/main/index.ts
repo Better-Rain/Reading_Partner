@@ -197,6 +197,32 @@ const registerIpc = (): void => {
     }
   })
 
+  ipcMain.handle('dictionary:suggest', (_event, query: string, limit?: number) => {
+    const cappedLimit = Math.min(20, Math.max(1, Math.floor(limit ?? 8)))
+    const entries = database.suggestDictionary(query, cappedLimit)
+    const seen = new Set(entries.map((entry) => entry.word.toLocaleLowerCase()))
+
+    for (const source of starDictSources.values()) {
+      if (entries.length >= cappedLimit) {
+        break
+      }
+
+      for (const entry of source.suggest(query, cappedLimit - entries.length)) {
+        const key = entry.word.toLocaleLowerCase()
+
+        if (!seen.has(key)) {
+          entries.push(entry)
+          seen.add(key)
+        }
+      }
+    }
+
+    return {
+      query,
+      entries
+    }
+  })
+
   ipcMain.handle('dictionary:sources', () => database.listDictionarySources())
 
   ipcMain.handle('dictionary:importCsvDialog', async () => {
