@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import {
   AIStreamEvent,
+  AnnotationRecord,
   AskDocumentQuestionInput,
   CreateAnnotationInput,
   CreateVocabularyInput,
@@ -31,6 +32,12 @@ const api: ReadingPartnerApi = {
   updateAnnotation: (input: UpdateAnnotationInput) =>
     ipcRenderer.invoke('annotations:update', input),
   deleteAnnotation: (id: string) => ipcRenderer.invoke('annotations:delete', id),
+  restoreAnnotation: (annotation: AnnotationRecord) =>
+    ipcRenderer.invoke('annotations:restore', annotation),
+  exportReadingMarksDialog: (documentId: string) =>
+    ipcRenderer.invoke('readingMarks:exportDialog', documentId),
+  importReadingMarksDialog: (documentId: string) =>
+    ipcRenderer.invoke('readingMarks:importDialog', documentId),
   listVocabulary: (documentId?: string | null) => ipcRenderer.invoke('vocabulary:list', documentId),
   createVocabulary: (input: CreateVocabularyInput) =>
     ipcRenderer.invoke('vocabulary:create', input),

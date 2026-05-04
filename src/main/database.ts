@@ -50,6 +50,7 @@ type AnnotationRow = {
   color: string | null
   note: string | null
   rects_json: string | null
+  author_name: string
   created_at: string
   updated_at: string
 }
@@ -176,6 +177,7 @@ const toAnnotation = (row: AnnotationRow): AnnotationRecord => ({
   color: row.color,
   note: row.note,
   rectsJson: row.rects_json,
+  authorName: row.author_name || 'Reader',
   createdAt: row.created_at,
   updatedAt: row.updated_at
 })
@@ -646,11 +648,12 @@ export class ReadingPartnerDatabase {
   createAnnotation(input: CreateAnnotationInput): AnnotationRecord {
     const id = randomUUID()
     const timestamp = now()
+    const authorName = input.authorName?.trim() || 'Reader'
 
     this.db.run(
       `insert into annotations (
-          id, document_id, type, page_number, selected_text, color, note, rects_json, created_at, updated_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          id, document_id, type, page_number, selected_text, color, note, rects_json, author_name, created_at, updated_at
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         input.documentId,
@@ -660,6 +663,7 @@ export class ReadingPartnerDatabase {
         input.color ?? null,
         input.note ?? null,
         input.rectsJson ?? null,
+        authorName,
         timestamp,
         timestamp
       ]
@@ -705,6 +709,140 @@ export class ReadingPartnerDatabase {
   deleteAnnotation(id: string): void {
     this.db.run('delete from annotations where id = ?', [id])
     this.persist()
+  }
+
+  restoreAnnotation(annotation: AnnotationRecord): AnnotationRecord {
+    this.getDocument(annotation.documentId)
+    this.db.run(
+      `insert into annotations (
+          id, document_id, type, page_number, selected_text, color, note, rects_json, author_name, created_at, updated_at
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        on conflict(id) do update set
+          document_id = excluded.document_id,
+          type = excluded.type,
+          page_number = excluded.page_number,
+          selected_text = excluded.selected_text,
+          color = excluded.color,
+          note = excluded.note,
+          rects_json = excluded.rects_json,
+          author_name = excluded.author_name,
+          created_at = excluded.created_at,
+          updated_at = excluded.updated_at`,
+      [
+        annotation.id,
+        annotation.documentId,
+        annotation.type,
+        annotation.pageNumber,
+        annotation.selectedText,
+        annotation.color,
+        annotation.note,
+        annotation.rectsJson,
+        annotation.authorName || 'Reader',
+        annotation.createdAt,
+        annotation.updatedAt
+      ]
+    )
+    this.persist()
+
+    const row = this.get<AnnotationRow>('select * from annotations where id = ?', [annotation.id])
+    if (!row) {
+      throw new Error(`Annotation not found after restore: ${annotation.id}`)
+    }
+
+    return toAnnotation(row)
+  }
+
+  exportReadingMarkBundle(documentId: string) {
+    const document = this.getDocument(documentId)
+    const annotations = this.listAnnotations(documentId)
+      .filter((annotation) => annotation.authorName !== 'AI' && !annotation.note?.trim().startsWith('AI '))
+      .map(({ documentId: _documentId, ...annotation }) => annotation)
+
+    return {
+      version: 1 as const,
+      exportedAt: now(),
+      sourceDocument: {
+        title: document.title,
+        pageCount: document.pageCount
+      },
+      annotations
+    }
+  }
+
+  importReadingMarkBundle(documentId: string, bundle: { annotations?: unknown[] }): number {
+    this.getDocument(documentId)
+
+    if (!Array.isArray(bundle.annotations)) {
+      throw new Error('Invalid reading mark bundle.')
+    }
+
+    let imported = 0
+
+    this.db.run('begin transaction')
+
+    try {
+      for (const item of bundle.annotations) {
+        if (!item || typeof item !== 'object') {
+          continue
+        }
+
+        const annotation = item as Partial<AnnotationRecord>
+        const type = annotation.type
+        const pageNumber = Number(annotation.pageNumber)
+
+        if (!type || !['highlight', 'note', 'bookmark'].includes(type) || !Number.isFinite(pageNumber)) {
+          continue
+        }
+
+        const requestedId = typeof annotation.id === 'string' && annotation.id ? annotation.id : randomUUID()
+        const existing = this.get<{ document_id: string }>(
+          'select document_id from annotations where id = ?',
+          [requestedId]
+        )
+        const id = existing && existing.document_id !== documentId ? randomUUID() : requestedId
+        const createdAt = typeof annotation.createdAt === 'string' ? annotation.createdAt : now()
+        const updatedAt = typeof annotation.updatedAt === 'string' ? annotation.updatedAt : createdAt
+
+        this.db.run(
+          `insert into annotations (
+              id, document_id, type, page_number, selected_text, color, note, rects_json, author_name, created_at, updated_at
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            on conflict(id) do update set
+              document_id = excluded.document_id,
+              type = excluded.type,
+              page_number = excluded.page_number,
+              selected_text = excluded.selected_text,
+              color = excluded.color,
+              note = excluded.note,
+              rects_json = excluded.rects_json,
+              author_name = excluded.author_name,
+              created_at = excluded.created_at,
+              updated_at = excluded.updated_at`,
+          [
+            id,
+            documentId,
+            type,
+            Math.max(1, Math.floor(pageNumber)),
+            annotation.selectedText ?? null,
+            annotation.color ?? null,
+            annotation.note ?? null,
+            annotation.rectsJson ?? null,
+            annotation.authorName?.trim() || 'Reader',
+            createdAt,
+            updatedAt
+          ]
+        )
+        imported += 1
+      }
+
+      this.db.run('commit')
+    } catch (error) {
+      this.db.run('rollback')
+      throw error
+    }
+
+    this.persist()
+    return imported
   }
 
   listVocabulary(documentId?: string | null): VocabularyRecord[] {
@@ -1230,6 +1368,7 @@ export class ReadingPartnerDatabase {
         color text,
         note text,
         rects_json text,
+        author_name text not null default 'Reader',
         created_at text not null,
         updated_at text not null
       );
@@ -1352,6 +1491,7 @@ export class ReadingPartnerDatabase {
         created_at text not null
       );
     `)
+    this.ensureColumn('annotations', 'author_name', "text not null default 'Reader'")
   }
 
   private seedProviders(): void {
@@ -1422,5 +1562,13 @@ export class ReadingPartnerDatabase {
     }
 
     return rows
+  }
+
+  private ensureColumn(tableName: string, columnName: string, definition: string): void {
+    const columns = this.query<{ name: string }>(`pragma table_info(${tableName})`)
+
+    if (!columns.some((column) => column.name === columnName)) {
+      this.db.run(`alter table ${tableName} add column ${columnName} ${definition}`)
+    }
   }
 }

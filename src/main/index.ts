@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   ChatMessage,
@@ -13,6 +13,7 @@ import { extractPdfText } from './pdfText'
 import { resolveStarDictIfoPath, StarDictSource } from './stardict'
 import {
   AIStreamEvent,
+  AnnotationRecord,
   AskDocumentQuestionInput,
   CreateAnnotationInput,
   CreateVocabularyInput,
@@ -31,6 +32,9 @@ const starDictSources = new Map<string, StarDictSource>()
 
 const toArrayBuffer = (buffer: Buffer): ArrayBuffer =>
   buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer
+
+const sanitizeFileName = (value: string): string =>
+  (value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim() || 'reading-marks').slice(0, 120)
 
 const createWindow = (): void => {
   mainWindow = new BrowserWindow({
@@ -152,6 +156,55 @@ const registerIpc = (): void => {
 
   ipcMain.handle('annotations:delete', (_event, id: string) => {
     database.deleteAnnotation(id)
+  })
+
+  ipcMain.handle('annotations:restore', (_event, annotation: AnnotationRecord) =>
+    database.restoreAnnotation(annotation)
+  )
+
+  ipcMain.handle('readingMarks:exportDialog', async (_event, documentId: string) => {
+    const document = database.getDocument(documentId)
+    const bundle = database.exportReadingMarkBundle(documentId)
+    const result = await dialog.showSaveDialog(mainWindow ?? undefined, {
+      title: 'Export Reading Marks',
+      defaultPath: `${sanitizeFileName(document.title.replace(/\.pdf$/i, ''))}.reading-partner-marks.json`,
+      filters: [{ name: 'Reading Partner Marks', extensions: ['json'] }]
+    })
+
+    if (result.canceled || !result.filePath) {
+      return null
+    }
+
+    await writeFile(result.filePath, JSON.stringify(bundle, null, 2), 'utf8')
+
+    return {
+      filePath: result.filePath,
+      annotationCount: bundle.annotations.length
+    }
+  })
+
+  ipcMain.handle('readingMarks:importDialog', async (_event, documentId: string) => {
+    const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
+      title: 'Import Reading Marks',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Reading Partner Marks', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    })
+
+    if (result.canceled || !result.filePaths[0]) {
+      return null
+    }
+
+    const filePath = result.filePaths[0]
+    const bundle = JSON.parse(await readFile(filePath, 'utf8')) as { annotations?: unknown[] }
+    const annotationCount = database.importReadingMarkBundle(documentId, bundle)
+
+    return {
+      filePath,
+      annotationCount
+    }
   })
 
   ipcMain.handle('vocabulary:list', (_event, documentId?: string | null) =>

@@ -12,6 +12,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  Download,
   Eye,
   FileText,
   Highlighter,
@@ -30,7 +31,9 @@ import {
   Sparkles,
   StickyNote,
   Trash2,
+  Undo2,
   Upload,
+  UserRound,
   X
 } from 'lucide-react'
 import {
@@ -99,6 +102,21 @@ type TextLayerSearchIndex = {
   text: string
   positions: TextLayerPosition[]
 }
+
+type AnnotationUndoAction =
+  | {
+      kind: 'create'
+      annotation: AnnotationRecord
+    }
+  | {
+      kind: 'delete'
+      annotation: AnnotationRecord
+    }
+  | {
+      kind: 'update'
+      before: AnnotationRecord
+      after: AnnotationRecord
+    }
 
 type AIRunState = {
   requestId: string
@@ -488,6 +506,11 @@ const makeConversationTitle = (message: string): string => {
 const getAnnotationPreview = (annotation: AnnotationRecord): string =>
   annotation.note?.trim() || annotation.selectedText?.trim() || '书签'
 
+const getStoredReaderName = (): string => {
+  const value = window.localStorage.getItem('reading-partner.reader-name')?.trim()
+  return value || '本机读者'
+}
+
 const isEditableTarget = (target: EventTarget | null): boolean => {
   if (!(target instanceof HTMLElement)) {
     return false
@@ -791,6 +814,9 @@ function AnnotationOverlay({
                 : '书签'}
           </strong>
           <time>{formatTime(hoveredAnnotation.annotation.createdAt)}</time>
+          <span className="annotation-tooltip-author">
+            {hoveredAnnotation.annotation.authorName || 'Reader'}
+          </span>
           <p>{getAnnotationPreview(hoveredAnnotation.annotation)}</p>
         </div>
       )}
@@ -835,6 +861,8 @@ function App(): JSX.Element {
   const [chatMessages, setChatMessages] = useState<AIChatMessageRecord[]>([])
   const [chatDraft, setChatDraft] = useState('')
   const [chatTitleDraft, setChatTitleDraft] = useState('')
+  const [readerName, setReaderName] = useState(getStoredReaderName)
+  const [annotationUndoStack, setAnnotationUndoStack] = useState<AnnotationUndoAction[]>([])
   const [status, setStatus] = useState('打开一本 PDF 开始阅读')
   const [aiRun, setAiRun] = useState<AIRunState | null>(null)
   const aiRunRef = useRef<AIRunState | null>(null)
@@ -880,6 +908,10 @@ function App(): JSX.Element {
   useEffect(() => {
     aiRunRef.current = aiRun
   }, [aiRun])
+
+  useEffect(() => {
+    window.localStorage.setItem('reading-partner.reader-name', readerName.trim() || '本机读者')
+  }, [readerName])
 
   useEffect(() => {
     const handleWindowMouseMove = (event: MouseEvent): void => {
@@ -1032,6 +1064,10 @@ function App(): JSX.Element {
     setIsSearching(false)
     setActiveSearchTarget(null)
     setTemporarySearchHighlight(null)
+  }
+
+  const pushAnnotationUndo = (action: AnnotationUndoAction): void => {
+    setAnnotationUndoStack((items) => [...items.slice(-39), action])
   }
 
   const refreshAIConversations = async (documentId: string): Promise<void> => {
@@ -1223,7 +1259,8 @@ function App(): JSX.Element {
         pageNumber: event.artifact.pageNumber ?? 1,
         selectedText: event.artifact.inputText,
         color: '#c7d2fe',
-        note: `AI ${promptLabels[event.artifact.promptType]}\n\n${event.artifact.outputMarkdown}`
+        note: `AI ${promptLabels[event.artifact.promptType]}\n\n${event.artifact.outputMarkdown}`,
+        authorName: 'AI'
       })
 
       setAnnotations((items) => [...items, note])
@@ -1253,6 +1290,7 @@ function App(): JSX.Element {
     setSelection(null)
     setSelectionNoteDraft('')
     setIsSelectionNoteEditorOpen(false)
+    setAnnotationUndoStack([])
     clearSearch()
     setQaQuestion('')
     setChatDraft('')
@@ -1284,6 +1322,7 @@ function App(): JSX.Element {
     })
     setPageNumber(1)
     setSelection(null)
+    setAnnotationUndoStack([])
     clearSearch()
     setQaQuestion('')
     setChatDraft('')
@@ -1363,10 +1402,12 @@ function App(): JSX.Element {
       selectedText: selection?.text ?? null,
       color: type === 'bookmark' ? null : color,
       note: note ?? null,
-      rectsJson: type !== 'bookmark' && selection?.rects.length ? JSON.stringify(selection.rects) : null
+      rectsJson: type !== 'bookmark' && selection?.rects.length ? JSON.stringify(selection.rects) : null,
+      authorName: readerName.trim() || 'Reader'
     })
 
     setAnnotations((items) => [...items, created])
+    pushAnnotationUndo({ kind: 'create', annotation: created })
     setSelection(null)
     setSelectionNoteDraft('')
     setIsSelectionNoteEditorOpen(false)
@@ -1376,11 +1417,23 @@ function App(): JSX.Element {
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent): void => {
-      if (event.ctrlKey || event.metaKey || event.altKey || isEditableTarget(event.target)) {
+      const key = event.key.toLowerCase()
+
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        key === 'z' &&
+        !isEditableTarget(event.target)
+      ) {
+        event.preventDefault()
+        void undoLastAnnotationAction()
         return
       }
 
-      const key = event.key.toLowerCase()
+      if (event.ctrlKey || event.metaKey || event.altKey || isEditableTarget(event.target)) {
+        return
+      }
 
       if (key === 'd') {
         event.preventDefault()
@@ -1407,7 +1460,7 @@ function App(): JSX.Element {
     return () => {
       window.removeEventListener('keydown', handleShortcut)
     }
-  }, [activeDocument, selection, selectedAnnotationColor])
+  }, [activeDocument, annotationUndoStack, selection, selectedAnnotationColor, readerName])
 
   const runAIAction = async (promptType: AIPromptType, text = selection?.text): Promise<void> => {
     if (!activeDocument || !text) {
@@ -1559,18 +1612,86 @@ function App(): JSX.Element {
   }
 
   const deleteAnnotation = async (id: string): Promise<void> => {
+    const deleted = annotations.find((item) => item.id === id)
     await window.readingPartner.deleteAnnotation(id)
     setAnnotations((items) => items.filter((item) => item.id !== id))
+    if (deleted) {
+      pushAnnotationUndo({ kind: 'delete', annotation: deleted })
+    }
   }
 
   const updateAnnotation = async (id: string, note: string, color?: string | null): Promise<void> => {
+    const before = annotations.find((item) => item.id === id)
     const updated = await window.readingPartner.updateAnnotation({
       id,
       note: note.trim() || null,
       color
     })
     setAnnotations((items) => items.map((item) => (item.id === id ? updated : item)))
+    if (before) {
+      pushAnnotationUndo({ kind: 'update', before, after: updated })
+    }
     setStatus('已更新批注')
+  }
+
+  const undoLastAnnotationAction = async (): Promise<void> => {
+    const action = annotationUndoStack.at(-1)
+
+    if (!action) {
+      setStatus('没有可撤销的批注操作')
+      return
+    }
+
+    setAnnotationUndoStack((items) => items.slice(0, -1))
+
+    if (action.kind === 'create') {
+      await window.readingPartner.deleteAnnotation(action.annotation.id)
+      setAnnotations((items) => items.filter((item) => item.id !== action.annotation.id))
+      setStatus('已撤销新增批注')
+      return
+    }
+
+    if (action.kind === 'delete') {
+      const restored = await window.readingPartner.restoreAnnotation(action.annotation)
+      setAnnotations((items) =>
+        [...items.filter((item) => item.id !== restored.id), restored].sort(
+          (first, second) =>
+            first.pageNumber - second.pageNumber || first.createdAt.localeCompare(second.createdAt)
+        )
+      )
+      setStatus('已撤销删除批注')
+      return
+    }
+
+    const restored = await window.readingPartner.restoreAnnotation(action.before)
+    setAnnotations((items) => items.map((item) => (item.id === restored.id ? restored : item)))
+    setStatus('已撤销批注编辑')
+  }
+
+  const exportReadingMarks = async (): Promise<void> => {
+    if (!activeDocument) {
+      return
+    }
+
+    const result = await window.readingPartner.exportReadingMarksDialog(activeDocument.id)
+
+    if (result) {
+      setStatus(`已导出 ${result.annotationCount} 条阅读记录`)
+    }
+  }
+
+  const importReadingMarks = async (): Promise<void> => {
+    if (!activeDocument) {
+      return
+    }
+
+    const result = await window.readingPartner.importReadingMarksDialog(activeDocument.id)
+
+    if (result) {
+      await refreshAnnotations(activeDocument.id)
+      setAnnotationUndoStack([])
+      setStatus(`已导入 ${result.annotationCount} 条阅读记录`)
+    }
   }
 
   const createVocabularyFromSelection = async (): Promise<void> => {
@@ -2129,14 +2250,19 @@ function App(): JSX.Element {
             colorPresets={annotationColorPresets}
             draftNote={draftNote}
             hasDocument={Boolean(activeDocument)}
+            readerName={readerName}
+            canUndo={annotationUndoStack.length > 0}
             onBookmark={() => void createAnnotation('bookmark')}
             onDelete={(id) => void deleteAnnotation(id)}
             onDraftNoteChange={setDraftNote}
+            onExportReadingMarks={() => void exportReadingMarks()}
+            onImportReadingMarks={() => void importReadingMarks()}
             onJump={(annotation) => {
               setPageNumber(annotation.pageNumber)
               setStatus(`已跳转到第 ${annotation.pageNumber} 页`)
             }}
             onSaveNote={() => void createAnnotation('note', draftNote || '空白页边注')}
+            onUndo={() => void undoLastAnnotationAction()}
             onUpdateAnnotation={(id, note, color) => void updateAnnotation(id, note, color)}
           />
         )}
@@ -2163,6 +2289,7 @@ function App(): JSX.Element {
               setTemporarySearchHighlight(null)
             }}
             onSearch={() => void searchDocument()}
+            onClear={clearSearch}
           />
         )}
 
@@ -2210,7 +2337,9 @@ function App(): JSX.Element {
           <SettingsPanel
             configuredProviderIds={configuredProviderIds}
             providers={providers}
+            readerName={readerName}
             onClearKey={(providerId) => void clearProviderKey(providerId)}
+            onReaderNameChange={setReaderName}
             onSaveKey={(providerId, apiKey) => void saveProviderKey(providerId, apiKey)}
             onToggle={(provider, enabled) => void updateProvider(provider, enabled)}
           />
@@ -2226,11 +2355,16 @@ type NotesPanelProps = {
   colorPresets: AnnotationColorPreset[]
   draftNote: string
   hasDocument: boolean
+  readerName: string
+  canUndo: boolean
   onBookmark: () => void
   onDelete: (id: string) => void
   onDraftNoteChange: (value: string) => void
+  onExportReadingMarks: () => void
+  onImportReadingMarks: () => void
   onJump: (annotation: AnnotationRecord) => void
   onSaveNote: () => void
+  onUndo: () => void
   onUpdateAnnotation: (id: string, note: string, color: string | null) => void
 }
 
@@ -2240,6 +2374,7 @@ type SearchPanelProps = {
   query: string
   results: DocumentSearchResult[]
   onJump: (result: DocumentSearchResult) => void
+  onClear: () => void
   onQueryChange: (value: string) => void
   onSearch: () => void
 }
@@ -2250,10 +2385,12 @@ function SearchPanel({
   query,
   results,
   onJump,
+  onClear,
   onQueryChange,
   onSearch
 }: SearchPanelProps): JSX.Element {
   const canSearch = hasDocument && query.trim().length > 0 && !isSearching
+  const canClear = query.trim().length > 0 || results.length > 0
 
   return (
     <div className="inspector-content search-panel">
@@ -2273,6 +2410,10 @@ function SearchPanel({
         <button disabled={!canSearch} type="submit">
           <Search size={16} />
           {isSearching ? '搜索中' : '搜索'}
+        </button>
+        <button disabled={!canClear} type="button" onClick={onClear}>
+          <X size={16} />
+          结束
         </button>
       </form>
 
@@ -2302,11 +2443,16 @@ function NotesPanel({
   colorPresets,
   draftNote,
   hasDocument,
+  readerName,
+  canUndo,
   onBookmark,
   onDelete,
   onDraftNoteChange,
+  onExportReadingMarks,
+  onImportReadingMarks,
   onJump,
   onSaveNote,
+  onUndo,
   onUpdateAnnotation
 }: NotesPanelProps): JSX.Element {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set())
@@ -2352,6 +2498,10 @@ function NotesPanel({
   return (
     <div className="inspector-content notes-panel">
       <div className="note-composer">
+        <div className="reader-badge">
+          <UserRound size={14} />
+          当前身份：{readerName.trim() || 'Reader'}
+        </div>
         <textarea
           disabled={!hasDocument}
           placeholder="写一条页边注..."
@@ -2366,6 +2516,20 @@ function NotesPanel({
           <button disabled={!hasDocument} onClick={onBookmark}>
             <Bookmark size={16} />
             书签
+          </button>
+        </div>
+        <div className="note-actions">
+          <button disabled={!canUndo} onClick={onUndo} title="撤销上一次批注操作 (Ctrl+Z)">
+            <Undo2 size={16} />
+            撤销
+          </button>
+          <button disabled={!hasDocument} onClick={onImportReadingMarks}>
+            <Upload size={16} />
+            导入记录
+          </button>
+          <button disabled={!hasDocument || annotations.length === 0} onClick={onExportReadingMarks}>
+            <Download size={16} />
+            导出记录
           </button>
         </div>
       </div>
@@ -2397,6 +2561,7 @@ function NotesPanel({
                     <span>{preview}</span>
                   </span>
                   <span className="annotation-summary-meta">
+                    <em>{annotation.authorName || 'Reader'}</em>
                     第 {annotation.pageNumber} 页 · {formatTime(annotation.createdAt)}
                     {expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
                   </span>
@@ -2405,6 +2570,7 @@ function NotesPanel({
                 {expanded && (
                   <div className="annotation-detail">
                     <div className="annotation-timestamp">
+                      <span>{annotation.authorName || 'Reader'}</span>
                       创建于 {formatTime(annotation.createdAt)}
                       {annotation.updatedAt !== annotation.createdAt
                         ? ` · 更新于 ${formatTime(annotation.updatedAt)}`
@@ -3055,7 +3221,9 @@ function VocabularyPanel({
 type SettingsPanelProps = {
   configuredProviderIds: Set<string>
   providers: AIProviderRecord[]
+  readerName: string
   onClearKey: (providerId: string) => void
+  onReaderNameChange: (value: string) => void
   onSaveKey: (providerId: string, apiKey: string) => void
   onToggle: (provider: AIProviderRecord, enabled: boolean) => void
 }
@@ -3063,7 +3231,9 @@ type SettingsPanelProps = {
 function SettingsPanel({
   configuredProviderIds,
   providers,
+  readerName,
   onClearKey,
+  onReaderNameChange,
   onSaveKey,
   onToggle
 }: SettingsPanelProps): JSX.Element {
@@ -3075,6 +3245,18 @@ function SettingsPanel({
         <h2>AI Provider</h2>
         <p>API Key 会在主进程通过 Electron safeStorage 加密保存，页面只显示是否已配置。</p>
       </div>
+
+      <section className="identity-card">
+        <div>
+          <strong>阅读身份</strong>
+          <span>新建批注、高亮和书签会带上这个名字。</span>
+        </div>
+        <input
+          placeholder="例如：Rain"
+          value={readerName}
+          onChange={(event) => onReaderNameChange(event.target.value)}
+        />
+      </section>
 
       <div className="provider-list">
         {providers.map((provider) => {

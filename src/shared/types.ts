@@ -57,6 +57,7 @@ export type AnnotationRecord = {
   color: string | null
   note: string | null
   rectsJson: string | null
+  authorName: string
   createdAt: string
   updatedAt: string
 }
@@ -69,6 +70,7 @@ export type CreateAnnotationInput = {
   color?: string | null
   note?: string | null
   rectsJson?: string | null
+  authorName?: string | null
 }
 
 export type UpdateAnnotationInput = {
@@ -191,6 +193,34 @@ export type ImportDictionaryResult = {
   sourceType: 'csv' | 'stardict'
 }
 
+export type ReadingMarkBundleAnnotation = {
+  id: string
+  type: AnnotationType
+  pageNumber: number
+  selectedText: string | null
+  color: string | null
+  note: string | null
+  rectsJson: string | null
+  authorName: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type ReadingMarkBundle = {
+  version: 1
+  exportedAt: string
+  sourceDocument: {
+    title: string
+    pageCount: number | null
+  }
+  annotations: ReadingMarkBundleAnnotation[]
+}
+
+export type ReadingMarkTransferResult = {
+  filePath: string
+  annotationCount: number
+}
+
 export type UpsertAIProviderInput = {
   id: string
   label: string
@@ -277,6 +307,9 @@ export type ReadingPartnerApi = {
   createAnnotation: (input: CreateAnnotationInput) => Promise<AnnotationRecord>
   updateAnnotation: (input: UpdateAnnotationInput) => Promise<AnnotationRecord>
   deleteAnnotation: (id: string) => Promise<void>
+  restoreAnnotation: (annotation: AnnotationRecord) => Promise<AnnotationRecord>
+  exportReadingMarksDialog: (documentId: string) => Promise<ReadingMarkTransferResult | null>
+  importReadingMarksDialog: (documentId: string) => Promise<ReadingMarkTransferResult | null>
   listVocabulary: (documentId?: string | null) => Promise<VocabularyRecord[]>
   createVocabulary: (input: CreateVocabularyInput) => Promise<VocabularyRecord>
   updateVocabularyDefinition: (
