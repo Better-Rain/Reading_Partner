@@ -22,13 +22,17 @@
 - `release/Reading Partner 0.1.0.exe`：Windows x64 便携版，可直接运行。
 - `release/win-unpacked/Reading Partner.exe`：解包目录版本，主要用于本地验证。
 
+## 图标
+
+应用图标源文件位于 `assets/logo.svg`，构建用图标位于 `assets/icon.ico`。当前 Windows 便携版会在打包后通过 `rcedit` 写入应用图标，避免显示默认 Electron 图标。
+
 ## 构建命令
 
 ```powershell
 npm run dist
 ```
 
-如果 Windows 普通用户权限无法解压签名工具，本项目已关闭 Windows 可执行文件资源编辑以保证初版便携包可以稳定生成。因此当前版本使用默认 Electron 图标，后续可补应用图标和签名流程。
+如果 Windows 普通用户权限无法解压签名工具，本项目已关闭 `electron-builder` 自带的 Windows 可执行文件资源编辑，并在打包后使用本地 `rcedit` 写入图标。
 
 ## 已知限制
 

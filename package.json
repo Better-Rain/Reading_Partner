@@ -8,7 +8,9 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
-    "dist": "npm run build && electron-builder --win portable",
+    "icons": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate-icons.ps1",
+    "apply-icon": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/apply-icon.ps1",
+    "dist": "npm run build && electron-builder --win portable && npm run apply-icon",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit"
@@ -23,6 +25,7 @@
     "directories": {
       "output": "release"
     },
+    "icon": "assets/icon.ico",
     "files": [
       "out/**/*",
       "package.json"

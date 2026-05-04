@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Reading Partner logo</title>
+  <desc id="desc">A rounded app icon with an open book and AI nodes.</desc>
+  <defs>
+    <linearGradient id="bg" x1="170" y1="110" x2="860" y2="900" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#17345d"/>
+      <stop offset="0.58" stop-color="#22658f"/>
+      <stop offset="1" stop-color="#2c8f8a"/>
+    </linearGradient>
+    <linearGradient id="pageLeft" x1="210" y1="310" x2="520" y2="760" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff7dd"/>
+      <stop offset="1" stop-color="#e8edf7"/>
+    </linearGradient>
+    <linearGradient id="pageRight" x1="520" y1="300" x2="850" y2="760" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f8fbff"/>
+      <stop offset="1" stop-color="#dcecff"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="22" stdDeviation="22" flood-color="#0b1b32" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" rx="220" fill="url(#bg)"/>
+  <path d="M190 743c126 17 227 53 322 112 96-59 197-95 322-112V361c-118 14-221 52-322 113-101-61-204-99-322-113v382z" fill="#102949" opacity="0.32"/>
+  <g filter="url(#softShadow)">
+    <path d="M210 306c105 14 203 48 302 107v392c-96-58-194-92-302-106V306z" fill="url(#pageLeft)"/>
+    <path d="M512 413c99-59 197-93 302-107v393c-108 14-206 48-302 106V413z" fill="url(#pageRight)"/>
+    <path d="M492 418h40v402l-20 24-20-24V418z" fill="#d2ddeb"/>
+    <path d="M248 406c76 14 144 37 204 70" fill="none" stroke="#8aa1b7" stroke-width="24" stroke-linecap="round" opacity="0.62"/>
+    <path d="M248 492c76 14 144 38 204 70" fill="none" stroke="#8aa1b7" stroke-width="24" stroke-linecap="round" opacity="0.48"/>
+    <path d="M248 578c70 12 132 33 186 61" fill="none" stroke="#8aa1b7" stroke-width="24" stroke-linecap="round" opacity="0.36"/>
+    <path d="M580 470c57-28 119-49 186-61" fill="none" stroke="#82a6c7" stroke-width="24" stroke-linecap="round" opacity="0.5"/>
+    <path d="M580 556c50-25 105-44 166-57" fill="none" stroke="#82a6c7" stroke-width="24" stroke-linecap="round" opacity="0.34"/>
+  </g>
+  <path d="M714 218l32 69 72 10-52 51 13 72-65-34-64 34 12-72-52-51 72-10 32-69z" fill="#8ff3ff"/>
+  <circle cx="610" cy="329" r="34" fill="#8ff3ff"/>
+  <circle cx="786" cy="508" r="32" fill="#f8d86a"/>
+  <path d="M632 351l130 132" fill="none" stroke="#8ff3ff" stroke-width="18" stroke-linecap="round" opacity="0.85"/>
+  <path d="M670 682l58-18 58 18v-236c-38 7-77 19-116 35v201z" fill="#f8d86a"/>
+</svg>
