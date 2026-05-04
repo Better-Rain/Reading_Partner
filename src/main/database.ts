@@ -537,6 +537,7 @@ export class ReadingPartnerDatabase {
           documentId: row.document_id,
           pageNumber: row.page_number,
           chunkIndex: row.chunk_index,
+          text: row.text,
           snippet: createSearchSnippet(row.text, terms),
           score
         }

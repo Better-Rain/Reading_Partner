@@ -77,6 +77,29 @@ type HoveredAnnotation = {
   y: number
 }
 
+type ActiveSearchTarget = {
+  nonce: number
+  query: string
+  result: DocumentSearchResult
+}
+
+type TemporarySearchHighlight = {
+  id: string
+  pageNumber: number
+  text: string
+  rects: AnnotationRect[]
+}
+
+type TextLayerPosition = {
+  node: Text
+  offset: number
+}
+
+type TextLayerSearchIndex = {
+  text: string
+  positions: TextLayerPosition[]
+}
+
 type AIRunState = {
   requestId: string
   promptType: AIPromptType
@@ -222,6 +245,193 @@ const parseAnnotationRects = (rectsJson: string | null): AnnotationRect[] => {
   } catch {
     return []
   }
+}
+
+const isSearchTextChar = (value: string): boolean => /^[\p{L}\p{N}]$/u.test(value)
+
+const normalizeSearchText = (value: string): string =>
+  value
+    .trim()
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+const getSearchTerms = (query: string): string[] =>
+  Array.from(new Set(normalizeSearchText(query).split(' ').filter(Boolean))).slice(0, 8)
+
+const buildTextLayerSearchIndex = (textLayer: HTMLElement): TextLayerSearchIndex => {
+  const walker = document.createTreeWalker(textLayer, NodeFilter.SHOW_TEXT)
+  let text = ''
+  const positions: TextLayerPosition[] = []
+  let node = walker.nextNode() as Text | null
+
+  const appendSpace = (position: TextLayerPosition): void => {
+    if (text && !text.endsWith(' ')) {
+      text += ' '
+      positions.push(position)
+    }
+  }
+
+  while (node) {
+    const value = node.nodeValue ?? ''
+
+    for (let offset = 0; offset < value.length; offset += 1) {
+      const char = value[offset]
+      const position = { node, offset }
+
+      if (isSearchTextChar(char)) {
+        text += char.toLocaleLowerCase()
+        positions.push(position)
+      } else {
+        appendSpace(position)
+      }
+    }
+
+    node = walker.nextNode() as Text | null
+  }
+
+  return {
+    text,
+    positions
+  }
+}
+
+const findAnchoredSearchMatch = (
+  pageText: string,
+  candidateText: string,
+  terms: string[]
+): { start: number; end: number } | null => {
+  const normalizedCandidate = normalizeSearchText(candidateText)
+
+  if (!normalizedCandidate) {
+    return null
+  }
+
+  const exactStart = normalizedCandidate.length <= 260 ? pageText.indexOf(normalizedCandidate) : -1
+
+  if (exactStart !== -1) {
+    return {
+      start: exactStart,
+      end: exactStart + normalizedCandidate.length
+    }
+  }
+
+  const matchedTerm = terms.find((term) => normalizedCandidate.includes(term))
+
+  if (!matchedTerm) {
+    return null
+  }
+
+  const termIndex = normalizedCandidate.indexOf(matchedTerm)
+  const radii = [180, 120, 80, 48, 24, matchedTerm.length]
+
+  for (const radius of radii) {
+    const anchorStart = Math.max(0, termIndex - radius)
+    const anchorEnd = Math.min(normalizedCandidate.length, termIndex + matchedTerm.length + radius)
+    const anchor = normalizedCandidate.slice(anchorStart, anchorEnd).trim()
+
+    if (anchor.length < matchedTerm.length) {
+      continue
+    }
+
+    const pageAnchorStart = pageText.indexOf(anchor)
+
+    if (pageAnchorStart !== -1) {
+      const termOffset = anchor.indexOf(matchedTerm)
+
+      return {
+        start: pageAnchorStart + Math.max(0, termOffset),
+        end: pageAnchorStart + Math.max(0, termOffset) + matchedTerm.length
+      }
+    }
+  }
+
+  return null
+}
+
+const findSearchMatch = (
+  index: TextLayerSearchIndex,
+  result: DocumentSearchResult,
+  query: string
+): { start: number; end: number } | null => {
+  const terms = getSearchTerms(query)
+  const candidates = [result.text, result.snippet.replace(/^\.+|\.+$/g, '')].filter(Boolean)
+
+  for (const candidate of candidates) {
+    const anchoredMatch = findAnchoredSearchMatch(index.text, candidate, terms)
+
+    if (anchoredMatch) {
+      return anchoredMatch
+    }
+  }
+
+  const exactQuery = normalizeSearchText(query)
+  const exactStart = exactQuery ? index.text.indexOf(exactQuery) : -1
+
+  if (exactStart !== -1) {
+    return {
+      start: exactStart,
+      end: exactStart + exactQuery.length
+    }
+  }
+
+  for (const term of terms) {
+    const termStart = index.text.indexOf(term)
+
+    if (termStart !== -1) {
+      return {
+        start: termStart,
+        end: termStart + term.length
+      }
+    }
+  }
+
+  return null
+}
+
+const rectsFromTextLayerMatch = (
+  index: TextLayerSearchIndex,
+  match: { start: number; end: number },
+  pageElement: HTMLElement,
+  scale: number
+): AnnotationRect[] => {
+  const startPosition = index.positions[match.start]
+  const endPosition = index.positions[Math.max(match.start, match.end - 1)]
+
+  if (!startPosition || !endPosition) {
+    return []
+  }
+
+  const range = document.createRange()
+  range.setStart(startPosition.node, startPosition.offset)
+  range.setEnd(endPosition.node, endPosition.offset + 1)
+
+  const pageRect = pageElement.getBoundingClientRect()
+  const rects = Array.from(range.getClientRects())
+    .map((item) => {
+      const left = Math.max(item.left, pageRect.left)
+      const top = Math.max(item.top, pageRect.top)
+      const right = Math.min(item.right, pageRect.right)
+      const bottom = Math.min(item.bottom, pageRect.bottom)
+      const width = right - left
+      const height = bottom - top
+
+      if (width <= 1 || height <= 1) {
+        return null
+      }
+
+      return {
+        left: roundRectValue((left - pageRect.left) / scale),
+        top: roundRectValue((top - pageRect.top) / scale),
+        width: roundRectValue(width / scale),
+        height: roundRectValue(height / scale)
+      }
+    })
+    .filter((item): item is AnnotationRect => Boolean(item))
+
+  range.detach()
+  return normalizeAnnotationRects(rects)
 }
 
 const hexToRgba = (value: string | null | undefined, alpha: number): string => {
@@ -450,11 +660,13 @@ function MarkdownContent({ text }: { text: string }): JSX.Element {
 function AnnotationOverlay({
   annotations,
   interactionMode,
-  scale
+  scale,
+  temporaryHighlight
 }: {
   annotations: AnnotationRecord[]
   interactionMode: AnnotationInteractionMode
   scale: number
+  temporaryHighlight: TemporarySearchHighlight | null
 }): JSX.Element {
   const [hoveredAnnotation, setHoveredAnnotation] = useState<HoveredAnnotation | null>(null)
   const canInspect = interactionMode === 'inspect'
@@ -547,6 +759,22 @@ function AnnotationOverlay({
           }}
         />
       ))}
+      {temporaryHighlight?.rects.map((rect, rectIndex) => {
+        const verticalInset = Math.min(4, rect.height * scale * 0.16)
+
+        return (
+          <span
+            className="pdf-annotation-rect is-search-target"
+            key={`${temporaryHighlight.id}-${rectIndex}`}
+            style={{
+              left: rect.left * scale,
+              top: rect.top * scale + verticalInset,
+              width: rect.width * scale,
+              height: Math.max(3, rect.height * scale - verticalInset * 2)
+            }}
+          />
+        )
+      })}
       {canInspect && hoveredAnnotation && (
         <div
           className="pdf-annotation-tooltip"
@@ -584,6 +812,9 @@ function App(): JSX.Element {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<DocumentSearchResult[]>([])
   const [isSearching, setIsSearching] = useState(false)
+  const [activeSearchTarget, setActiveSearchTarget] = useState<ActiveSearchTarget | null>(null)
+  const [temporarySearchHighlight, setTemporarySearchHighlight] =
+    useState<TemporarySearchHighlight | null>(null)
   const [selection, setSelection] = useState<SelectionState | null>(null)
   const [pageNumber, setPageNumber] = useState(1)
   const [pageCount, setPageCount] = useState(0)
@@ -614,6 +845,13 @@ function App(): JSX.Element {
   const currentPageAnnotations = useMemo(
     () => annotations.filter((item) => item.pageNumber === pageNumber),
     [annotations, pageNumber]
+  )
+  const currentPageSearchHighlight = useMemo(
+    () =>
+      temporarySearchHighlight?.pageNumber === pageNumber
+        ? temporarySearchHighlight
+        : null,
+    [pageNumber, temporarySearchHighlight]
   )
 
   const pdfFile = useMemo<Source | null>(() => (pdfUrl ? { url: pdfUrl } : null), [pdfUrl])
@@ -701,6 +939,64 @@ function App(): JSX.Element {
     })
   }, [])
 
+  useEffect(() => {
+    if (!activeSearchTarget || activeSearchTarget.result.pageNumber !== pageNumber) {
+      return
+    }
+
+    let cancelled = false
+    let retryTimer: number | null = null
+
+    const locateSearchTarget = (attempt = 0): void => {
+      if (cancelled) {
+        return
+      }
+
+      const pageElement = readerSurfaceRef.current?.querySelector<HTMLElement>('.react-pdf__Page')
+      const textLayer = pageElement?.querySelector<HTMLElement>('.react-pdf__Page__textContent')
+
+      if (!pageElement || !textLayer || textLayer.textContent?.trim().length === 0) {
+        if (attempt < 14) {
+          retryTimer = window.setTimeout(() => locateSearchTarget(attempt + 1), 80)
+        }
+        return
+      }
+
+      const index = buildTextLayerSearchIndex(textLayer)
+      const match = findSearchMatch(index, activeSearchTarget.result, activeSearchTarget.query)
+      const rects = match ? rectsFromTextLayerMatch(index, match, pageElement, scale) : []
+
+      if (rects.length > 0) {
+        setTemporarySearchHighlight({
+          id: `search-${activeSearchTarget.result.id}-${activeSearchTarget.nonce}`,
+          pageNumber: activeSearchTarget.result.pageNumber,
+          text: activeSearchTarget.result.snippet,
+          rects
+        })
+        setStatus(`已定位第 ${activeSearchTarget.result.pageNumber} 页的搜索片段`)
+        return
+      }
+
+      if (attempt < 14) {
+        retryTimer = window.setTimeout(() => locateSearchTarget(attempt + 1), 80)
+      } else {
+        setTemporarySearchHighlight(null)
+        setStatus(`已跳转到第 ${activeSearchTarget.result.pageNumber} 页，但未能自动定位文字坐标`)
+      }
+    }
+
+    setTemporarySearchHighlight(null)
+    retryTimer = window.setTimeout(() => locateSearchTarget(), 0)
+
+    return () => {
+      cancelled = true
+
+      if (retryTimer !== null) {
+        window.clearTimeout(retryTimer)
+      }
+    }
+  }, [activeSearchTarget, pageNumber, scale])
+
   const refreshLibrary = async (): Promise<void> => {
     const list = await window.readingPartner.listDocuments()
     setDocuments(list)
@@ -734,6 +1030,8 @@ function App(): JSX.Element {
     setSearchQuery('')
     setSearchResults([])
     setIsSearching(false)
+    setActiveSearchTarget(null)
+    setTemporarySearchHighlight(null)
   }
 
   const refreshAIConversations = async (documentId: string): Promise<void> => {
@@ -813,10 +1111,14 @@ function App(): JSX.Element {
 
     if (!trimmed) {
       setSearchResults([])
+      setActiveSearchTarget(null)
+      setTemporarySearchHighlight(null)
       return
     }
 
     setIsSearching(true)
+    setActiveSearchTarget(null)
+    setTemporarySearchHighlight(null)
     setStatus(`正在搜索：${trimmed}`)
 
     try {
@@ -1713,6 +2015,7 @@ function App(): JSX.Element {
                     annotations={currentPageAnnotations}
                     interactionMode={annotationInteractionMode}
                     scale={scale}
+                    temporaryHighlight={currentPageSearchHighlight}
                   />
                 </div>
               </Document>
@@ -1845,10 +2148,20 @@ function App(): JSX.Element {
             query={searchQuery}
             results={searchResults}
             onJump={(result) => {
+              setTemporarySearchHighlight(null)
+              setActiveSearchTarget({
+                nonce: Date.now(),
+                query: searchQuery,
+                result
+              })
               setPageNumber(result.pageNumber)
-              setStatus(`已跳转到第 ${result.pageNumber} 页`)
+              setStatus(`已跳转到第 ${result.pageNumber} 页，正在定位搜索片段`)
             }}
-            onQueryChange={setSearchQuery}
+            onQueryChange={(value) => {
+              setSearchQuery(value)
+              setActiveSearchTarget(null)
+              setTemporarySearchHighlight(null)
+            }}
             onSearch={() => void searchDocument()}
           />
         )}
