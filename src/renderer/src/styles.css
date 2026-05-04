@@ -788,6 +788,34 @@ button:disabled {
   padding: 10px;
 }
 
+.dictionary-entry-heading {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dictionary-entry-heading strong {
+  overflow-wrap: anywhere;
+  color: #18202b;
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.dictionary-entry-heading span {
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eef4fb;
+  color: #536173;
+  font-size: 12px;
+  line-height: 1.25;
+  padding: 3px 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .dictionary-suggestion-list {
   display: flex;
   max-height: 340px;

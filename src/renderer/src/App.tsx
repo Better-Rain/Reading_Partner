@@ -2529,12 +2529,13 @@ function DictionaryEntryCard({
   onAdd: (entry: DictionaryEntryRecord) => void
 }): JSX.Element {
   const definition = makeDefinitionFromDictionary(entry)
+  const sourceLabel = formatDictionarySource(entry.source)
 
   return (
     <article className="dictionary-entry-card">
-      <div className="vocabulary-heading">
+      <div className="dictionary-entry-heading">
         <strong>{entry.word}</strong>
-        <span>{entry.source}</span>
+        <span title={entry.source}>{sourceLabel}</span>
       </div>
       <VocabularyDefinition definition={definition} />
       {entry.exchange && (
@@ -2549,6 +2550,19 @@ function DictionaryEntryCard({
       </button>
     </article>
   )
+}
+
+function formatDictionarySource(source: string): string {
+  const trimmed = source.trim()
+  if (!trimmed) {
+    return '本地词典'
+  }
+
+  const normalized = trimmed.replace(/\\/g, '/')
+  const fileName = normalized.split('/').filter(Boolean).pop() ?? trimmed
+  const label = fileName.replace(/\.(ifo|csv|db|sqlite)$/i, '')
+
+  return label || '本地词典'
 }
 
 function VocabularyPanel({
