@@ -561,10 +561,33 @@ button:disabled {
   box-shadow: 0 14px 32px rgba(22, 34, 51, 0.22);
 }
 
-.pdf-annotation-tooltip strong {
-  display: block;
+.pdf-annotation-tooltip.is-pinned {
+  pointer-events: auto;
+}
+
+.pdf-annotation-tooltip-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin-bottom: 5px;
+}
+
+.pdf-annotation-tooltip-heading strong {
   font-size: 13px;
+}
+
+.pdf-annotation-tooltip-heading button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(116, 130, 150, 0.26);
+  border-radius: 6px;
+  background: #f7f9fc;
+  color: #4a5668;
+  cursor: pointer;
 }
 
 .pdf-annotation-tooltip time {
@@ -591,6 +614,13 @@ button:disabled {
   color: #344256;
   font-size: 13px;
   line-height: 1.55;
+}
+
+.pdf-annotation-tooltip.is-pinned p {
+  display: block;
+  overflow: auto;
+  max-height: 260px;
+  -webkit-line-clamp: unset;
 }
 
 .empty-state {
@@ -754,6 +784,10 @@ button:disabled {
   flex: 0 0 auto;
 }
 
+.notes-panel .annotation-filter-panel {
+  flex: 0 0 auto;
+}
+
 .reader-badge {
   display: inline-flex;
   width: fit-content;
@@ -902,6 +936,8 @@ button:disabled {
 }
 
 .note-composer textarea,
+.annotation-filter-panel input,
+.annotation-filter-panel select,
 .vocab-composer textarea,
 .vocab-composer input,
 .vocab-tools input,
@@ -937,6 +973,12 @@ button:disabled {
 .search-form input {
   height: 38px;
   padding: 0 10px;
+}
+
+.annotation-filter-panel input,
+.annotation-filter-panel select {
+  height: 34px;
+  padding: 0 9px;
 }
 
 .vocab-composer button,
@@ -993,6 +1035,139 @@ button:disabled {
   color: #263447;
   cursor: pointer;
   font-weight: 700;
+}
+
+.annotation-filter-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+  border: 1px solid #dde3ed;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 8px;
+}
+
+.annotation-filter-compact {
+  display: grid;
+  grid-template-columns: repeat(6, 30px) 1fr repeat(2, 30px);
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+}
+
+.annotation-filter-compact button {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: 1px solid #d6deeb;
+  border-radius: 7px;
+  background: #fff;
+  color: #536173;
+  cursor: pointer;
+}
+
+.annotation-filter-compact button.active {
+  border-color: #8fb3df;
+  background: #e9f2ff;
+  color: #1d4f91;
+}
+
+.annotation-filter-compact button:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+
+.annotation-filter-compact button span {
+  max-width: 12px;
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  text-overflow: clip;
+}
+
+.annotation-filter-advanced {
+  grid-column: 8;
+}
+
+.annotation-filter-reset {
+  grid-column: 9;
+}
+
+.annotation-filter-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid #e3e9f2;
+  padding-top: 8px;
+}
+
+.annotation-filter-stats {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  border-radius: 8px;
+  background: #eef3f8;
+  color: #647287;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 7px 9px;
+}
+
+.annotation-search-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #d6deeb;
+  border-radius: 8px;
+  background: #fff;
+  color: #66758a;
+  padding: 0 8px;
+}
+
+.annotation-search-row input {
+  border: 0;
+  padding: 0;
+}
+
+.annotation-filter-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.annotation-filter-grid label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.annotation-filter-grid label span {
+  color: #6d7787;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.annotation-sync-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px;
+  background: #f3f6fb;
+  color: #344256;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px;
+}
+
+.annotation-sync-toggle input {
+  accent-color: #5d83b6;
 }
 
 .prompt-status {
@@ -1507,6 +1682,74 @@ button:disabled {
   line-height: 1.5;
 }
 
+.ai-operation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ai-operation-card {
+  border: 1px solid #c9d8eb;
+  border-radius: 8px;
+  background: #f8fbff;
+  padding: 10px;
+}
+
+.ai-operation-card.is-reverted {
+  opacity: 0.68;
+}
+
+.ai-operation-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ai-operation-heading span,
+.ai-operation-actions span {
+  color: #657286;
+  font-size: 12px;
+}
+
+.ai-operation-card ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ai-operation-card li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ai-operation-card li span {
+  color: #263447;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ai-operation-card li small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #566579;
+  font-size: 12px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.ai-operation-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
 .chat-composer {
   margin-bottom: 0;
 }
@@ -1519,6 +1762,43 @@ button:disabled {
   color: #263447;
   font-size: 14px;
   line-height: 1.7;
+}
+
+.ai-reasoning-block {
+  margin: 8px 0 10px;
+  border: 1px solid #d4deeb;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 8px 10px;
+}
+
+.ai-reasoning-block button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  color: #516177;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ai-reasoning-block button svg {
+  transition: transform 0.16s ease;
+}
+
+.ai-reasoning-block.is-open button svg {
+  transform: rotate(180deg);
+}
+
+.ai-reasoning-block p {
+  margin: 8px 0 0;
+  color: #516177;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
 }
 
 .markdown-content h2,

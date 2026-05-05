@@ -19,6 +19,7 @@ import {
   Hand,
   KeyRound,
   Languages,
+  LocateFixed,
   Maximize2,
   MessageSquarePlus,
   Minus,
@@ -54,6 +55,19 @@ import {
 
 type PanelTab = 'notes' | 'search' | 'ai' | 'vocab' | 'settings'
 type AnnotationInteractionMode = 'inspect' | 'select'
+type AnnotationTypeFilter = 'all' | AnnotationRecord['type']
+type AnnotationPageScope = 'all' | 'current'
+type AnnotationSortMode = 'newest' | 'oldest' | 'page' | 'type'
+
+type AnnotationFilterState = {
+  query: string
+  type: AnnotationTypeFilter
+  author: string
+  pageScope: AnnotationPageScope
+  sort: AnnotationSortMode
+  showOnPdf: boolean
+  syncToPdf: boolean
+}
 
 type SelectionState = {
   text: string
@@ -125,11 +139,39 @@ type AIRunState = {
   providerLabel: string
   model: string
   output: string
+  reasoningOutput: string
   status: 'idle' | 'running' | 'done' | 'error'
   error: string | null
   source: 'selection' | 'vocabulary' | 'document_qa' | 'chat'
   conversationId?: string
   vocabularyId?: string
+}
+
+type AIAssistedAnnotation = {
+  pageNumber: number
+  scope: 'paragraph' | 'vocabulary' | 'note'
+  selectedText: string | null
+  note: string
+  color: string
+}
+
+type AIOperationRecord = {
+  id: string
+  requestId: string
+  conversationId?: string
+  createdAt: string
+  annotations: AnnotationRecord[]
+  status: 'pending' | 'kept' | 'reverted'
+}
+
+const defaultAnnotationFilters: AnnotationFilterState = {
+  query: '',
+  type: 'all',
+  author: 'all',
+  pageScope: 'all',
+  sort: 'page',
+  showOnPdf: true,
+  syncToPdf: false
 }
 
 const promptLabels: Record<AIPromptType, string> = {
@@ -156,6 +198,10 @@ const makeDefinitionFromDictionary = (entry: NonNullable<Awaited<ReturnType<type
 const minScale = 0.75
 const maxScale = 3
 const scaleStep = 0.12
+const aiDefaultAnnotationColor = '#c7d2fe'
+const maxAIAssistedAnnotations = 2
+const aiAnnotationBlockPattern = /<!--\s*RP_ANNOTATIONS\s*([\s\S]*?)\s*-->/gi
+const aiReasoningBlockPattern = /<!--\s*RP_REASONING\s*([\s\S]*?)\s*-->/gi
 
 const annotationColorPresets: AnnotationColorPreset[] = [
   { label: '黄色', value: '#f8d86a' },
@@ -262,6 +308,126 @@ const parseAnnotationRects = (rectsJson: string | null): AnnotationRect[] => {
     return normalizeAnnotationRects(rects)
   } catch {
     return []
+  }
+}
+
+const stripAIAssistedAnnotationBlock = (text: string): string =>
+  text.replace(aiAnnotationBlockPattern, '').trim()
+
+const stripAIReasoningBlock = (text: string): string =>
+  text.replace(aiReasoningBlockPattern, '').trim()
+
+const extractAIReasoning = (text: string): { reasoning: string; content: string } => {
+  const reasoning = Array.from(text.matchAll(aiReasoningBlockPattern))
+    .map((match) => match[1]?.trim())
+    .filter(Boolean)
+    .join('\n\n')
+
+  return {
+    reasoning,
+    content: stripAIReasoningBlock(text)
+  }
+}
+
+const composeAIOutputWithReasoning = (output: string, reasoning: string): string => {
+  const trimmedReasoning = reasoning.trim().replace(/-->/g, '-- >')
+  const trimmedOutput = output.trim()
+
+  if (!trimmedReasoning) {
+    return trimmedOutput
+  }
+
+  return `<!-- RP_REASONING\n${trimmedReasoning}\n-->\n\n${trimmedOutput}`.trim()
+}
+
+const normalizeAIAssistedColor = (value: unknown): string => {
+  if (typeof value !== 'string') {
+    return aiDefaultAnnotationColor
+  }
+
+  const normalized = value.trim().toLocaleLowerCase()
+  const allowed = [aiDefaultAnnotationColor, ...annotationColorPresets.map((preset) => preset.value)]
+    .map((color) => color.toLocaleLowerCase())
+    .includes(normalized)
+
+  return allowed ? value.trim() : aiDefaultAnnotationColor
+}
+
+const toLimitedText = (value: unknown, maxLength: number): string | null => {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const trimmed = value.replace(/\s+/g, ' ').trim()
+
+  if (!trimmed) {
+    return null
+  }
+
+  return trimmed.length > maxLength ? `${trimmed.slice(0, maxLength)}...` : trimmed
+}
+
+const extractAIAssistedAnnotations = (
+  output: string,
+  fallbackPageNumber: number,
+  totalPages: number
+): { displayOutput: string; annotations: AIAssistedAnnotation[] } => {
+  const annotations: AIAssistedAnnotation[] = []
+  const matches = Array.from(output.matchAll(aiAnnotationBlockPattern))
+
+  for (const match of matches) {
+    if (annotations.length >= maxAIAssistedAnnotations) {
+      break
+    }
+
+    try {
+      const parsed = JSON.parse(match[1] ?? '[]') as unknown
+      const items = Array.isArray(parsed)
+        ? parsed
+        : parsed && typeof parsed === 'object' && Array.isArray((parsed as { annotations?: unknown }).annotations)
+          ? (parsed as { annotations: unknown[] }).annotations
+          : []
+
+      for (const item of items) {
+        if (annotations.length >= maxAIAssistedAnnotations || !item || typeof item !== 'object') {
+          break
+        }
+
+        const draft = item as Record<string, unknown>
+        const rawPageNumber = Number(draft.pageNumber)
+        const pageNumber = Number.isFinite(rawPageNumber)
+          ? Math.floor(rawPageNumber)
+          : fallbackPageNumber
+
+        if (pageNumber < 1 || (totalPages > 0 && pageNumber > totalPages)) {
+          continue
+        }
+
+        const note = toLimitedText(draft.note, 900)
+
+        if (!note) {
+          continue
+        }
+
+        annotations.push({
+          pageNumber,
+          scope:
+            draft.scope === 'paragraph' || draft.scope === 'vocabulary'
+              ? draft.scope
+              : 'note',
+          selectedText: toLimitedText(draft.selectedText, 500),
+          note,
+          color: normalizeAIAssistedColor(draft.color)
+        })
+      }
+    } catch {
+      continue
+    }
+  }
+
+  return {
+    displayOutput: stripAIAssistedAnnotationBlock(output),
+    annotations
   }
 }
 
@@ -506,6 +672,91 @@ const makeConversationTitle = (message: string): string => {
 const getAnnotationPreview = (annotation: AnnotationRecord): string =>
   annotation.note?.trim() || annotation.selectedText?.trim() || '书签'
 
+const getAIOperationAnnotationTitle = (annotation: AnnotationRecord): string => {
+  const noteLine = annotation.note
+    ?.split('\n')
+    .map((line) => line.trim())
+    .find((line) => line && !line.startsWith('模型：'))
+
+  return noteLine || getAnnotationPreview(annotation)
+}
+
+const getAnnotationTypeLabel = (type: AnnotationRecord['type']): string => {
+  if (type === 'highlight') {
+    return '高亮'
+  }
+
+  if (type === 'note') {
+    return '批注'
+  }
+
+  return '书签'
+}
+
+const matchesAnnotationFilters = (
+  annotation: AnnotationRecord,
+  filters: AnnotationFilterState,
+  currentPageNumber: number,
+  options: { includePageScope: boolean; includeQuery: boolean }
+): boolean => {
+  if (filters.type !== 'all' && annotation.type !== filters.type) {
+    return false
+  }
+
+  if (filters.author !== 'all' && (annotation.authorName || 'Reader') !== filters.author) {
+    return false
+  }
+
+  if (options.includePageScope && filters.pageScope === 'current' && annotation.pageNumber !== currentPageNumber) {
+    return false
+  }
+
+  const query = filters.query.trim().toLocaleLowerCase()
+
+  if (options.includeQuery && query) {
+    const haystack = [
+      annotation.note,
+      annotation.selectedText,
+      annotation.authorName,
+      getAnnotationTypeLabel(annotation.type),
+      `第 ${annotation.pageNumber} 页`
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLocaleLowerCase()
+
+    if (!haystack.includes(query)) {
+      return false
+    }
+  }
+
+  return true
+}
+
+const sortAnnotations = (
+  annotationsToSort: AnnotationRecord[],
+  sortMode: AnnotationSortMode
+): AnnotationRecord[] =>
+  [...annotationsToSort].sort((first, second) => {
+    if (sortMode === 'newest') {
+      return second.createdAt.localeCompare(first.createdAt)
+    }
+
+    if (sortMode === 'oldest') {
+      return first.createdAt.localeCompare(second.createdAt)
+    }
+
+    if (sortMode === 'type') {
+      return (
+        first.type.localeCompare(second.type) ||
+        first.pageNumber - second.pageNumber ||
+        first.createdAt.localeCompare(second.createdAt)
+      )
+    }
+
+    return first.pageNumber - second.pageNumber || first.createdAt.localeCompare(second.createdAt)
+  })
+
 const getStoredReaderName = (): string => {
   const value = window.localStorage.getItem('reading-partner.reader-name')?.trim()
   return value || '本机读者'
@@ -564,8 +815,27 @@ const renderInlineMarkdown = (text: string): ReactNode[] => {
   return nodes
 }
 
+function ReasoningDisclosure({ text }: { text: string }): JSX.Element {
+  const [isOpen, setIsOpen] = useState(false)
+
+  return (
+    <section className={isOpen ? 'ai-reasoning-block is-open' : 'ai-reasoning-block'}>
+      <button
+        type="button"
+        onClick={() => setIsOpen((value) => !value)}
+        aria-expanded={isOpen}
+      >
+        <ChevronDown size={14} />
+        思考过程
+      </button>
+      {isOpen && <p>{text}</p>}
+    </section>
+  )
+}
+
 function MarkdownContent({ text }: { text: string }): JSX.Element {
-  const lines = text.replace(/\r\n/g, '\n').split('\n')
+  const { reasoning, content } = extractAIReasoning(stripAIAssistedAnnotationBlock(text))
+  const lines = content.replace(/\r\n/g, '\n').split('\n')
   const blocks: ReactNode[] = []
   let index = 0
 
@@ -677,7 +947,12 @@ function MarkdownContent({ text }: { text: string }): JSX.Element {
     blocks.push(<p key={blockIndex}>{renderInlineMarkdown(paragraph.join(' '))}</p>)
   }
 
-  return <div className="markdown-content">{blocks}</div>
+  return (
+    <div className="markdown-content">
+      {reasoning && <ReasoningDisclosure text={reasoning} />}
+      {blocks}
+    </div>
+  )
 }
 
 function AnnotationOverlay({
@@ -692,12 +967,78 @@ function AnnotationOverlay({
   temporaryHighlight: TemporarySearchHighlight | null
 }): JSX.Element {
   const [hoveredAnnotation, setHoveredAnnotation] = useState<HoveredAnnotation | null>(null)
+  const [pinnedAnnotation, setPinnedAnnotation] = useState<HoveredAnnotation | null>(null)
   const canInspect = interactionMode === 'inspect'
   const visualItems = annotations.map((annotation) => ({
     annotation,
     rects: parseAnnotationRects(annotation.rectsJson)
   }))
   const pageMarkers = visualItems.filter(({ annotation, rects }) => annotation.type === 'bookmark' || rects.length === 0)
+
+  useEffect(() => {
+    if (!canInspect) {
+      setHoveredAnnotation(null)
+      setPinnedAnnotation(null)
+      return
+    }
+
+    if (
+      pinnedAnnotation &&
+      !annotations.some((annotation) => annotation.id === pinnedAnnotation.annotation.id)
+    ) {
+      setPinnedAnnotation(null)
+    }
+  }, [annotations, canInspect, pinnedAnnotation])
+
+  useEffect(() => {
+    if (!pinnedAnnotation) {
+      return
+    }
+
+    let pointerDown: { x: number; y: number; target: EventTarget | null } | null = null
+
+    const rememberPointerDown = (event: MouseEvent): void => {
+      pointerDown = {
+        x: event.clientX,
+        y: event.clientY,
+        target: event.target
+      }
+    }
+
+    const closePinnedTooltip = (event: MouseEvent): void => {
+      const target = pointerDown?.target ?? event.target
+
+      if (!(target instanceof HTMLElement)) {
+        return
+      }
+
+      const deltaX = pointerDown ? event.clientX - pointerDown.x : 0
+      const deltaY = pointerDown ? event.clientY - pointerDown.y : 0
+
+      if (Math.hypot(deltaX, deltaY) > 5) {
+        return
+      }
+
+      if (
+        target.closest(
+          '.pdf-annotation-rect, .pdf-annotation-pin, .pdf-page-marker, .pdf-annotation-tooltip'
+        )
+      ) {
+        return
+      }
+
+      setPinnedAnnotation(null)
+    }
+
+    document.addEventListener('mousedown', rememberPointerDown)
+    document.addEventListener('mouseup', closePinnedTooltip)
+
+    return () => {
+      document.removeEventListener('mousedown', rememberPointerDown)
+      document.removeEventListener('mouseup', closePinnedTooltip)
+    }
+  }, [pinnedAnnotation])
+
   const showTooltip = (annotation: AnnotationRecord, event: ReactMouseEvent): void => {
     if (!canInspect) {
       return
@@ -713,12 +1054,30 @@ function AnnotationOverlay({
       y: layerRect ? event.clientY - layerRect.top + 14 : 14
     })
   }
+  const pinTooltip = (annotation: AnnotationRecord, event: ReactMouseEvent): void => {
+    if (!canInspect) {
+      return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+    const layerRect = event.currentTarget
+      .closest('.pdf-annotation-layer')
+      ?.getBoundingClientRect()
+
+    setPinnedAnnotation({
+      annotation,
+      x: layerRect ? event.clientX - layerRect.left + 14 : 14,
+      y: layerRect ? event.clientY - layerRect.top + 14 : 14
+    })
+  }
   const hideTooltip = (): void => setHoveredAnnotation(null)
+  const visibleTooltip = pinnedAnnotation ?? hoveredAnnotation
 
   return (
     <div
       className={canInspect ? 'pdf-annotation-layer is-inspecting' : 'pdf-annotation-layer is-selecting'}
-      aria-hidden="true"
+      aria-hidden={!canInspect}
     >
       {visualItems.flatMap(({ annotation, rects }) =>
         rects.map((rect, rectIndex) => {
@@ -742,6 +1101,7 @@ function AnnotationOverlay({
               onMouseEnter={(event) => showTooltip(annotation, event)}
               onMouseMove={(event) => showTooltip(annotation, event)}
               onMouseLeave={hideTooltip}
+              onClick={(event) => pinTooltip(annotation, event)}
               style={style}
             />
           )
@@ -760,6 +1120,7 @@ function AnnotationOverlay({
               onMouseEnter={(event) => showTooltip(annotation, event)}
               onMouseMove={(event) => showTooltip(annotation, event)}
               onMouseLeave={hideTooltip}
+              onClick={(event) => pinTooltip(annotation, event)}
               style={{
                 left: (firstRect.left + firstRect.width) * scale + 6,
                 top: firstRect.top * scale
@@ -775,6 +1136,7 @@ function AnnotationOverlay({
           onMouseEnter={(event) => showTooltip(annotation, event)}
           onMouseMove={(event) => showTooltip(annotation, event)}
           onMouseLeave={hideTooltip}
+          onClick={(event) => pinTooltip(annotation, event)}
           style={{
             top: 12 + index * 30,
             backgroundColor:
@@ -798,26 +1160,37 @@ function AnnotationOverlay({
           />
         )
       })}
-      {canInspect && hoveredAnnotation && (
+      {canInspect && visibleTooltip && (
         <div
-          className="pdf-annotation-tooltip"
+          className={pinnedAnnotation ? 'pdf-annotation-tooltip is-pinned' : 'pdf-annotation-tooltip'}
           style={{
-            left: hoveredAnnotation.x,
-            top: hoveredAnnotation.y
+            left: visibleTooltip.x,
+            top: visibleTooltip.y
           }}
         >
-          <strong>
-            {hoveredAnnotation.annotation.type === 'highlight'
-              ? '高亮'
-              : hoveredAnnotation.annotation.type === 'note'
-                ? '批注'
-                : '书签'}
-          </strong>
-          <time>{formatTime(hoveredAnnotation.annotation.createdAt)}</time>
+          <div className="pdf-annotation-tooltip-heading">
+            <strong>
+              {visibleTooltip.annotation.type === 'highlight'
+                ? '高亮'
+                : visibleTooltip.annotation.type === 'note'
+                  ? '批注'
+                  : '书签'}
+            </strong>
+            {pinnedAnnotation && (
+              <button
+                type="button"
+                title="关闭批注浮窗"
+                onClick={() => setPinnedAnnotation(null)}
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+          <time>{formatTime(visibleTooltip.annotation.createdAt)}</time>
           <span className="annotation-tooltip-author">
-            {hoveredAnnotation.annotation.authorName || 'Reader'}
+            {visibleTooltip.annotation.authorName || 'Reader'}
           </span>
-          <p>{getAnnotationPreview(hoveredAnnotation.annotation)}</p>
+          <p>{getAnnotationPreview(visibleTooltip.annotation)}</p>
         </div>
       )}
     </div>
@@ -863,6 +1236,9 @@ function App(): JSX.Element {
   const [chatTitleDraft, setChatTitleDraft] = useState('')
   const [readerName, setReaderName] = useState(getStoredReaderName)
   const [annotationUndoStack, setAnnotationUndoStack] = useState<AnnotationUndoAction[]>([])
+  const [aiOperations, setAiOperations] = useState<AIOperationRecord[]>([])
+  const [annotationFilters, setAnnotationFilters] =
+    useState<AnnotationFilterState>(defaultAnnotationFilters)
   const [status, setStatus] = useState('打开一本 PDF 开始阅读')
   const [aiRun, setAiRun] = useState<AIRunState | null>(null)
   const aiRunRef = useRef<AIRunState | null>(null)
@@ -874,6 +1250,20 @@ function App(): JSX.Element {
   const currentPageAnnotations = useMemo(
     () => annotations.filter((item) => item.pageNumber === pageNumber),
     [annotations, pageNumber]
+  )
+  const visibleCurrentPageAnnotations = useMemo(
+    () =>
+      annotationFilters.showOnPdf
+        ? currentPageAnnotations.filter((annotation) =>
+            annotationFilters.syncToPdf
+              ? matchesAnnotationFilters(annotation, annotationFilters, pageNumber, {
+                  includePageScope: false,
+                  includeQuery: true
+                })
+              : true
+          )
+        : [],
+    [annotationFilters, currentPageAnnotations, pageNumber]
   )
   const currentPageSearchHighlight = useMemo(
     () =>
@@ -1071,6 +1461,92 @@ function App(): JSX.Element {
     setAnnotationUndoStack((items) => [...items.slice(-39), action])
   }
 
+  const normalizeAIAssistedNote = (note: string): string => {
+    let normalized = note.trim()
+
+    for (let index = 0; index < 3; index += 1) {
+      normalized = normalized
+        .replace(/^(AI\s*)?(段落批注|词汇批注|辅助批注)[：:\s]+/i, '')
+        .trim()
+    }
+
+    return normalized || note.trim()
+  }
+
+  const createAIAssistedAnnotations = async (
+    documentId: string,
+    drafts: AIAssistedAnnotation[],
+    model: string
+  ): Promise<AnnotationRecord[]> => {
+    if (drafts.length === 0) {
+      return []
+    }
+
+    const created = await Promise.all(
+      drafts.map((draft) =>
+        window.readingPartner.createAnnotation({
+          documentId,
+          type: 'note',
+          pageNumber: draft.pageNumber,
+          selectedText: draft.selectedText,
+          color: draft.color,
+          note: `模型：${model}\n\n${normalizeAIAssistedNote(draft.note)}`,
+          authorName: 'AI'
+        })
+      )
+    )
+
+    setAnnotations((items) => [...items, ...created])
+    return created
+  }
+
+  const registerAIOperation = (
+    requestId: string,
+    annotationsForOperation: AnnotationRecord[],
+    conversationId?: string
+  ): void => {
+    if (annotationsForOperation.length === 0) {
+      return
+    }
+
+    setAiOperations((items) => [
+      {
+        id: crypto.randomUUID(),
+        requestId,
+        createdAt: new Date().toISOString(),
+        annotations: annotationsForOperation,
+        status: 'pending',
+        ...(conversationId ? { conversationId } : {})
+      },
+      ...items
+    ])
+  }
+
+  const keepAIOperation = (operationId: string): void => {
+    setAiOperations((items) =>
+      items.map((item) => (item.id === operationId ? { ...item, status: 'kept' } : item))
+    )
+    setStatus('已保留 AI 创建的批注')
+  }
+
+  const revertAIOperation = async (operationId: string): Promise<void> => {
+    const operation = aiOperations.find((item) => item.id === operationId)
+
+    if (!operation || operation.status === 'reverted') {
+      return
+    }
+
+    await Promise.all(
+      operation.annotations.map((annotation) => window.readingPartner.deleteAnnotation(annotation.id))
+    )
+    const deletedIds = new Set(operation.annotations.map((annotation) => annotation.id))
+    setAnnotations((items) => items.filter((item) => !deletedIds.has(item.id)))
+    setAiOperations((items) =>
+      items.map((item) => (item.id === operationId ? { ...item, status: 'reverted' } : item))
+    )
+    setStatus('已撤销 AI 创建的批注')
+  }
+
   const resetReaderViewport = (): void => {
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
@@ -1232,7 +1708,7 @@ function App(): JSX.Element {
     if (event.type === 'start') {
       setAiRun((current) =>
         current && current.requestId === event.requestId
-          ? { ...current, model: event.model, status: 'running', error: null }
+          ? { ...current, model: event.model, status: 'running', error: null, reasoningOutput: '' }
           : current
       )
       return
@@ -1241,7 +1717,9 @@ function App(): JSX.Element {
     if (event.type === 'delta') {
       setAiRun((current) =>
         current && current.requestId === event.requestId
-          ? { ...current, output: `${current.output}${event.text}` }
+          ? event.channel === 'reasoning'
+            ? { ...current, reasoningOutput: `${current.reasoningOutput}${event.text}` }
+            : { ...current, output: `${current.output}${event.text}` }
           : current
       )
       return
@@ -1258,49 +1736,94 @@ function App(): JSX.Element {
     }
 
     const currentRun = aiRunRef.current
+    const {
+      displayOutput,
+      annotations: assistedAnnotationDrafts
+    } = extractAIAssistedAnnotations(
+      event.artifact.outputMarkdown,
+      event.artifact.pageNumber ?? pageNumber,
+      pageCount
+    )
+    const finalReasoning = extractAIReasoning(displayOutput).reasoning
+    const visibleOutputForNote = stripAIReasoningBlock(displayOutput)
 
     if (currentRun?.source === 'chat' && currentRun.conversationId) {
       const [messages, conversations] = await Promise.all([
         window.readingPartner.listAIChatMessages(currentRun.conversationId),
         window.readingPartner.listAIConversations(event.artifact.documentId)
       ])
+      const createdAnnotations = await createAIAssistedAnnotations(
+        event.artifact.documentId,
+        assistedAnnotationDrafts,
+        event.artifact.model
+      )
+
+      registerAIOperation(event.requestId, createdAnnotations, currentRun.conversationId)
+
       setChatMessages(messages)
       setAiConversations(conversations)
       setAiRun((current) =>
         current && current.requestId === event.requestId
-          ? { ...current, status: 'done', output: event.artifact.outputMarkdown }
+          ? { ...current, status: 'done', output: visibleOutputForNote, reasoningOutput: finalReasoning }
           : current
       )
-      setStatus('共读对话已更新')
+      setStatus(
+        createdAnnotations.length > 0
+          ? `共读对话已更新，并创建 ${createdAnnotations.length} 条 AI 辅助批注`
+          : '共读对话已更新'
+      )
       return
     }
 
     if (currentRun?.source === 'vocabulary' && currentRun.vocabularyId) {
       const updated = await window.readingPartner.updateVocabularyDefinition({
         id: currentRun.vocabularyId,
-        definition: event.artifact.outputMarkdown
+        definition: visibleOutputForNote
       })
       setVocabulary((items) => items.map((item) => (item.id === updated.id ? updated : item)))
+      const createdAnnotations = await createAIAssistedAnnotations(
+        event.artifact.documentId,
+        assistedAnnotationDrafts,
+        event.artifact.model
+      )
+      registerAIOperation(event.requestId, createdAnnotations)
     } else {
+      const createdAnnotations: AnnotationRecord[] = []
       const note = await window.readingPartner.createAnnotation({
         documentId: event.artifact.documentId,
         type: 'note',
         pageNumber: event.artifact.pageNumber ?? 1,
         selectedText: event.artifact.inputText,
-        color: '#c7d2fe',
-        note: `AI ${promptLabels[event.artifact.promptType]}\n\n${event.artifact.outputMarkdown}`,
+        color: aiDefaultAnnotationColor,
+        note: `AI ${promptLabels[event.artifact.promptType]}\n模型：${event.artifact.model}\n\n${visibleOutputForNote}`,
         authorName: 'AI'
       })
+      createdAnnotations.push(note)
+
+      createdAnnotations.push(
+        ...(await createAIAssistedAnnotations(
+          event.artifact.documentId,
+          assistedAnnotationDrafts,
+          event.artifact.model
+        ))
+      )
 
       setAnnotations((items) => [...items, note])
+      registerAIOperation(event.requestId, createdAnnotations)
     }
 
     setAiRun((current) =>
       current && current.requestId === event.requestId
-        ? { ...current, status: 'done', output: event.artifact.outputMarkdown }
+        ? { ...current, status: 'done', output: visibleOutputForNote, reasoningOutput: finalReasoning }
         : current
     )
-    setStatus(currentRun?.source === 'vocabulary' ? 'AI 释义已写入词汇本' : 'AI 结果已保存为笔记')
+    setStatus(
+      currentRun?.source === 'vocabulary'
+        ? 'AI 释义已写入词汇本'
+        : assistedAnnotationDrafts.length > 0
+          ? `AI 结果已保存为笔记，并创建 ${assistedAnnotationDrafts.length} 条辅助批注`
+          : 'AI 结果已保存为笔记'
+    )
   }
 
   const loadDocument = async (document: DocumentRecord): Promise<void> => {
@@ -1321,6 +1844,7 @@ function App(): JSX.Element {
     setSelectionNoteDraft('')
     setIsSelectionNoteEditorOpen(false)
     setAnnotationUndoStack([])
+    setAiOperations([])
     clearSearch()
     setQaQuestion('')
     setChatDraft('')
@@ -1354,6 +1878,7 @@ function App(): JSX.Element {
     setPageNumber(1)
     setSelection(null)
     setAnnotationUndoStack([])
+    setAiOperations([])
     clearSearch()
     setQaQuestion('')
     setChatDraft('')
@@ -1512,6 +2037,7 @@ function App(): JSX.Element {
       providerLabel: readyProvider.label,
       model: readyProvider.defaultModel,
       output: '',
+      reasoningOutput: '',
       status: 'running',
       error: null,
       source: 'selection'
@@ -1555,6 +2081,7 @@ function App(): JSX.Element {
       providerLabel: readyProvider.label,
       model: readyProvider.defaultModel,
       output: '',
+      reasoningOutput: '',
       status: 'running',
       error: null,
       source: 'document_qa'
@@ -1622,6 +2149,7 @@ function App(): JSX.Element {
       providerLabel: readyProvider.label,
       model: readyProvider.defaultModel,
       output: '',
+      reasoningOutput: '',
       status: 'running',
       error: null,
       source: 'chat',
@@ -1832,6 +2360,7 @@ function App(): JSX.Element {
       providerLabel: readyProvider.label,
       model: readyProvider.defaultModel,
       output: '',
+      reasoningOutput: '',
       status: 'running',
       error: null,
       source: 'vocabulary',
@@ -2172,7 +2701,7 @@ function App(): JSX.Element {
                     onRenderSuccess={resetReaderViewportAfterRender}
                   />
                   <AnnotationOverlay
-                    annotations={currentPageAnnotations}
+                    annotations={visibleCurrentPageAnnotations}
                     interactionMode={annotationInteractionMode}
                     scale={scale}
                     temporaryHighlight={currentPageSearchHighlight}
@@ -2286,23 +2815,24 @@ function App(): JSX.Element {
         {activeTab === 'notes' && (
           <NotesPanel
             annotations={annotations}
+            currentPageNumber={pageNumber}
+            filters={annotationFilters}
             colorPresets={annotationColorPresets}
             draftNote={draftNote}
             hasDocument={Boolean(activeDocument)}
             readerName={readerName}
-            canUndo={annotationUndoStack.length > 0}
             onBookmark={() => void createAnnotation('bookmark')}
             onDelete={(id) => void deleteAnnotation(id)}
             onDraftNoteChange={setDraftNote}
             onExportReadingMarks={() => void exportReadingMarks()}
             onImportReadingMarks={() => void importReadingMarks()}
+            onFiltersChange={setAnnotationFilters}
             onJump={(annotation) => {
               requestReaderViewportReset()
               setPageNumber(annotation.pageNumber)
               setStatus(`已跳转到第 ${annotation.pageNumber} 页`)
             }}
             onSaveNote={() => void createAnnotation('note', draftNote || '空白页边注')}
-            onUndo={() => void undoLastAnnotationAction()}
             onUpdateAnnotation={(id, note, color) => void updateAnnotation(id, note, color)}
           />
         )}
@@ -2337,6 +2867,7 @@ function App(): JSX.Element {
         {activeTab === 'ai' && (
           <AiPanel
             aiRun={aiRun}
+            aiOperations={aiOperations}
             chatDraft={chatDraft}
             chatTitleDraft={chatTitleDraft}
             chatMessages={chatMessages}
@@ -2352,6 +2883,8 @@ function App(): JSX.Element {
             onChatTitleDraftChange={setChatTitleDraft}
             onCloseConversation={() => setIsChatDrawerOpen(false)}
             onCreateConversation={startNewAIConversation}
+            onKeepAIOperation={keepAIOperation}
+            onRevertAIOperation={(operationId) => void revertAIOperation(operationId)}
             onSendChat={(message) => void sendChatMessage(message)}
             onSelectConversation={(conversationId) => void selectAIConversation(conversationId)}
             onQuestionChange={setQaQuestion}
@@ -2393,19 +2926,20 @@ function App(): JSX.Element {
 
 type NotesPanelProps = {
   annotations: AnnotationRecord[]
+  currentPageNumber: number
+  filters: AnnotationFilterState
   colorPresets: AnnotationColorPreset[]
   draftNote: string
   hasDocument: boolean
   readerName: string
-  canUndo: boolean
   onBookmark: () => void
   onDelete: (id: string) => void
   onDraftNoteChange: (value: string) => void
   onExportReadingMarks: () => void
   onImportReadingMarks: () => void
+  onFiltersChange: (filters: AnnotationFilterState) => void
   onJump: (annotation: AnnotationRecord) => void
   onSaveNote: () => void
-  onUndo: () => void
   onUpdateAnnotation: (id: string, note: string, color: string | null) => void
 }
 
@@ -2481,25 +3015,72 @@ function SearchPanel({
 
 function NotesPanel({
   annotations,
+  currentPageNumber,
+  filters,
   colorPresets,
   draftNote,
   hasDocument,
   readerName,
-  canUndo,
   onBookmark,
   onDelete,
   onDraftNoteChange,
   onExportReadingMarks,
   onImportReadingMarks,
+  onFiltersChange,
   onJump,
   onSaveNote,
-  onUndo,
   onUpdateAnnotation
 }: NotesPanelProps): JSX.Element {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set())
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingNote, setEditingNote] = useState('')
   const [editingColor, setEditingColor] = useState(colorPresets[0]?.value ?? '#f8d86a')
+  const [isFilterExpanded, setIsFilterExpanded] = useState(false)
+  const authors = useMemo(
+    () =>
+      Array.from(new Set(annotations.map((annotation) => annotation.authorName || 'Reader'))).sort(
+        (first, second) => first.localeCompare(second)
+      ),
+    [annotations]
+  )
+  const filteredAnnotations = useMemo(
+    () =>
+      sortAnnotations(
+        annotations.filter((annotation) =>
+          matchesAnnotationFilters(annotation, filters, currentPageNumber, {
+            includePageScope: true,
+            includeQuery: true
+          })
+        ),
+        filters.sort
+      ),
+    [annotations, currentPageNumber, filters]
+  )
+  const visibleOnPdfCount = annotations.filter((annotation) =>
+    annotation.pageNumber === currentPageNumber &&
+    filters.showOnPdf &&
+    (!filters.syncToPdf ||
+      matchesAnnotationFilters(annotation, filters, currentPageNumber, {
+        includePageScope: false,
+        includeQuery: true
+      }))
+  ).length
+  const updateFilters = (patch: Partial<AnnotationFilterState>): void => {
+    onFiltersChange({ ...filters, ...patch })
+  }
+  const hasActiveFilters =
+    filters.query.trim() ||
+    filters.type !== 'all' ||
+    filters.author !== 'all' ||
+    filters.pageScope !== 'all' ||
+    filters.sort !== defaultAnnotationFilters.sort ||
+    !filters.showOnPdf ||
+    filters.syncToPdf
+  const hasAdvancedFilters =
+    filters.query.trim() ||
+    filters.author !== 'all' ||
+    filters.sort !== defaultAnnotationFilters.sort ||
+    filters.syncToPdf
 
   const toggleExpanded = (id: string): void => {
     setExpandedIds((current) => {
@@ -2560,10 +3141,6 @@ function NotesPanel({
           </button>
         </div>
         <div className="note-actions">
-          <button disabled={!canUndo} onClick={onUndo} title="撤销上一次批注操作 (Ctrl+Z)">
-            <Undo2 size={16} />
-            撤销
-          </button>
           <button disabled={!hasDocument} onClick={onImportReadingMarks}>
             <Upload size={16} />
             导入记录
@@ -2575,11 +3152,146 @@ function NotesPanel({
         </div>
       </div>
 
+      <div className="annotation-filter-panel">
+        <div className="annotation-filter-compact" aria-label="笔记筛选">
+          <button
+            className={filters.type === 'all' ? 'active' : ''}
+            disabled={!hasDocument}
+            title="全部类型"
+            onClick={() => updateFilters({ type: 'all' })}
+          >
+            <FileText size={15} />
+          </button>
+          <button
+            className={filters.type === 'highlight' ? 'active' : ''}
+            disabled={!hasDocument}
+            title="只看高亮"
+            onClick={() => updateFilters({ type: 'highlight' })}
+          >
+            <Highlighter size={15} />
+          </button>
+          <button
+            className={filters.type === 'note' ? 'active' : ''}
+            disabled={!hasDocument}
+            title="只看批注"
+            onClick={() => updateFilters({ type: 'note' })}
+          >
+            <StickyNote size={15} />
+          </button>
+          <button
+            className={filters.type === 'bookmark' ? 'active' : ''}
+            disabled={!hasDocument}
+            title="只看书签"
+            onClick={() => updateFilters({ type: 'bookmark' })}
+          >
+            <Bookmark size={15} />
+          </button>
+          <button
+            className={filters.pageScope === 'current' ? 'active' : ''}
+            disabled={!hasDocument}
+            title="只看当前页"
+            onClick={() =>
+              updateFilters({ pageScope: filters.pageScope === 'current' ? 'all' : 'current' })
+            }
+          >
+            <LocateFixed size={15} />
+          </button>
+          <button
+            className={filters.showOnPdf ? 'active' : ''}
+            disabled={!hasDocument}
+            title="显示/隐藏 PDF 标记"
+            onClick={() => updateFilters({ showOnPdf: !filters.showOnPdf })}
+          >
+            <Eye size={15} />
+          </button>
+          <button
+            className={
+              isFilterExpanded || hasAdvancedFilters
+                ? 'annotation-filter-advanced active'
+                : 'annotation-filter-advanced'
+            }
+            disabled={!hasDocument}
+            title="高级筛选"
+            onClick={() => setIsFilterExpanded((value) => !value)}
+          >
+            <Settings size={15} />
+          </button>
+          <button
+            className="annotation-filter-reset"
+            disabled={!hasActiveFilters}
+            title="重置筛选"
+            onClick={() => onFiltersChange(defaultAnnotationFilters)}
+          >
+            <X size={15} />
+          </button>
+        </div>
+        {isFilterExpanded && (
+          <div className="annotation-filter-detail">
+            <div className="annotation-filter-stats">
+              <span>筛选 {filteredAnnotations.length} / {annotations.length} 条</span>
+              <span>PDF 显示 {visibleOnPdfCount} 条</span>
+            </div>
+            <div className="annotation-search-row">
+              <Search size={15} />
+              <input
+                disabled={!hasDocument}
+                placeholder="搜索批注、原文、作者或页码"
+                value={filters.query}
+                onChange={(event) => updateFilters({ query: event.target.value })}
+              />
+            </div>
+            <div className="annotation-filter-grid">
+          <label>
+            <span>作者</span>
+            <select
+              disabled={!hasDocument}
+              value={filters.author}
+              onChange={(event) => updateFilters({ author: event.target.value })}
+            >
+              <option value="all">全部</option>
+              {authors.map((author) => (
+                <option key={author} value={author}>
+                  {author}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>排序</span>
+            <select
+              disabled={!hasDocument}
+              value={filters.sort}
+              onChange={(event) =>
+                updateFilters({ sort: event.target.value as AnnotationSortMode })
+              }
+            >
+              <option value="page">按页码</option>
+              <option value="newest">最新优先</option>
+              <option value="oldest">最早优先</option>
+              <option value="type">按类型</option>
+            </select>
+          </label>
+            </div>
+            <label className="annotation-sync-toggle">
+              <input
+                checked={filters.syncToPdf}
+                disabled={!hasDocument || !filters.showOnPdf}
+                type="checkbox"
+                onChange={(event) => updateFilters({ syncToPdf: event.target.checked })}
+              />
+              筛选同步到 PDF
+            </label>
+          </div>
+        )}
+      </div>
+
       <div className="annotation-list">
         {annotations.length === 0 ? (
           <p className="muted">高亮、批注和书签会出现在这里。</p>
+        ) : filteredAnnotations.length === 0 ? (
+          <p className="muted">没有符合当前筛选条件的批注。</p>
         ) : (
-          annotations.map((annotation) => {
+          filteredAnnotations.map((annotation) => {
             const expanded = expandedIds.has(annotation.id)
             const preview = getAnnotationPreview(annotation)
 
@@ -2690,6 +3402,7 @@ function NotesPanel({
 type AiPanelProps = {
   activeConversationId: string | null
   aiRun: AIRunState | null
+  aiOperations: AIOperationRecord[]
   chatDraft: string
   chatTitleDraft: string
   chatMessages: AIChatMessageRecord[]
@@ -2704,16 +3417,80 @@ type AiPanelProps = {
   onChatTitleDraftChange: (value: string) => void
   onCloseConversation: () => void
   onCreateConversation: () => void
+  onKeepAIOperation: (operationId: string) => void
   onQuestionChange: (value: string) => void
   onRun: (promptType: AIPromptType) => void
+  onRevertAIOperation: (operationId: string) => void
   onSelectConversation: (conversationId: string) => void
   onSendChat: (message: string) => void
   onUpdateConversationTitle: (conversationId: string, title: string) => void
 }
 
+function AIOperationList({
+  operations,
+  onKeep,
+  onRevert
+}: {
+  operations: AIOperationRecord[]
+  onKeep: (operationId: string) => void
+  onRevert: (operationId: string) => void
+}): JSX.Element | null {
+  if (operations.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="ai-operation-list">
+      {operations.map((operation) => {
+        const pageNumbers = Array.from(
+          new Set(operation.annotations.map((annotation) => annotation.pageNumber))
+        )
+          .sort((first, second) => first - second)
+          .join(', ')
+
+        return (
+          <article className={`ai-operation-card is-${operation.status}`} key={operation.id}>
+            <div className="ai-operation-heading">
+              <strong>AI 已创建 {operation.annotations.length} 条批注</strong>
+              <span>
+                第 {pageNumbers || '-'} 页 · {formatTime(operation.createdAt)}
+              </span>
+            </div>
+            <ul>
+              {operation.annotations.map((annotation) => (
+                <li key={annotation.id}>
+                  <span>{getAIOperationAnnotationTitle(annotation)}</span>
+                  <small>{annotation.selectedText || annotation.note || '无预览'}</small>
+                </li>
+              ))}
+            </ul>
+            <div className="ai-operation-actions">
+              {operation.status === 'pending' ? (
+                <>
+                  <button className="text-button neutral" onClick={() => onKeep(operation.id)}>
+                    <Check size={14} />
+                    保留
+                  </button>
+                  <button className="text-button" onClick={() => onRevert(operation.id)}>
+                    <Undo2 size={14} />
+                    撤销
+                  </button>
+                </>
+              ) : (
+                <span>{operation.status === 'kept' ? '已保留' : '已撤销'}</span>
+              )}
+            </div>
+          </article>
+        )
+      })}
+    </div>
+  )
+}
+
 function AiPanel({
   activeConversationId,
   aiRun,
+  aiOperations,
   chatDraft,
   chatTitleDraft,
   chatMessages,
@@ -2728,8 +3505,10 @@ function AiPanel({
   onChatTitleDraftChange,
   onCloseConversation,
   onCreateConversation,
+  onKeepAIOperation,
   onQuestionChange,
   onRun,
+  onRevertAIOperation,
   onSelectConversation,
   onSendChat,
   onUpdateConversationTitle
@@ -2741,6 +3520,13 @@ function AiPanel({
   const activeChatRunning = aiRun?.source === 'chat' && aiRun.status === 'running'
   const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId)
   const isCreatingConversation = isConversationOpen && activeConversationId === null
+  const visibleOperations = aiOperations.filter((operation) =>
+    isConversationOpen && activeConversationId
+      ? operation.conversationId === activeConversationId
+      : !operation.conversationId
+  )
+  const chatMessageListRef = useRef<HTMLDivElement | null>(null)
+  const shouldStickToBottomRef = useRef(true)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [titleEditDraft, setTitleEditDraft] = useState(activeConversation?.title ?? '')
 
@@ -2748,6 +3534,25 @@ function AiPanel({
     setTitleEditDraft(activeConversation?.title ?? '')
     setIsEditingTitle(false)
   }, [activeConversation?.id, activeConversation?.title])
+
+  useEffect(() => {
+    const list = chatMessageListRef.current
+
+    if (!list || !shouldStickToBottomRef.current) {
+      return
+    }
+
+    window.requestAnimationFrame(() => {
+      list.scrollTop = list.scrollHeight
+    })
+  }, [
+    activeChatRunning,
+    activeConversationId,
+    aiRun?.output,
+    aiRun?.reasoningOutput,
+    chatMessages.length,
+    visibleOperations.length
+  ])
 
   if (isConversationOpen && (activeConversation || isCreatingConversation)) {
     return (
@@ -2811,7 +3616,15 @@ function AiPanel({
           </div>
         </header>
 
-        <div className="chat-message-list">
+        <div
+          className="chat-message-list"
+          ref={chatMessageListRef}
+          onScroll={(event) => {
+            const target = event.currentTarget
+            shouldStickToBottomRef.current =
+              target.scrollHeight - target.scrollTop - target.clientHeight < 24
+          }}
+        >
           {chatMessages.length === 0 ? (
             <p className="muted">开始一段可以连续追问的共读对话。选中文本后发送，会把选区一起作为本轮上下文。</p>
           ) : (
@@ -2826,9 +3639,19 @@ function AiPanel({
           {activeChatRunning && (
             <article className="chat-message assistant">
               <strong>Reading Partner</strong>
-              <MarkdownContent text={aiRun.output || '正在思考...'} />
+              <MarkdownContent
+                text={composeAIOutputWithReasoning(
+                  aiRun.output || '正在思考...',
+                  aiRun.reasoningOutput
+                )}
+              />
             </article>
           )}
+          <AIOperationList
+            operations={visibleOperations}
+            onKeep={onKeepAIOperation}
+            onRevert={onRevertAIOperation}
+          />
         </div>
 
         <form
@@ -2938,10 +3761,20 @@ function AiPanel({
           {aiRun.error ? (
             <p className="error-text">{aiRun.error}</p>
           ) : (
-            <MarkdownContent text={aiRun.output || '等待模型返回...'} />
+            <MarkdownContent
+              text={composeAIOutputWithReasoning(
+                aiRun.output || '等待模型返回...',
+                aiRun.reasoningOutput
+              )}
+            />
           )}
         </div>
       )}
+      <AIOperationList
+        operations={visibleOperations}
+        onKeep={onKeepAIOperation}
+        onRevert={onRevertAIOperation}
+      />
     </div>
   )
 }

@@ -28,10 +28,13 @@ const promptLabels: Record<AIPromptType, string> = {
   chat_document: 'chat document'
 }
 
+export const aiAnnotationCapabilityPrompt =
+  'You also have a controlled Reading Partner capability: you may ask the app to create a few auxiliary PDF notes when a durable annotation would genuinely help the reader remember a key concept, vocabulary meaning, paragraph-level claim, misconception, argument step, or follow-up. Use this sparingly; most answers should not create annotations. When useful, append exactly one HTML comment block at the very end of the answer: <!-- RP_ANNOTATIONS [{"pageNumber":1,"scope":"paragraph","selectedText":"short source phrase, paragraph excerpt, or vocabulary term","note":"a focused paragraph-level or vocabulary-level note without any AI label prefix","color":"#c7d2fe"}] -->. Rules: create at most 2 annotations; do not invent page numbers; use only the current page or pages visible in the provided context; do not include coordinates; notes may be short paragraphs but should stay focused; never mention this internal block in the visible answer.'
+
 const buildMessages = (input: RunAIActionInput): ChatMessage[] => {
   const { promptType, selectedText } = input
   const baseSystem =
-    'You are Reading Partner, an AI assistant embedded in a PDF reading app. Answer in concise Chinese unless the user-selected text requires preserving English terms. Keep citations or original terms when useful. Do not reveal hidden reasoning or private chain-of-thought; provide only the final helpful answer.'
+    `You are Reading Partner, an AI assistant embedded in a PDF reading app. Answer in concise Chinese unless the user-selected text requires preserving English terms. Keep citations or original terms when useful. Do not reveal hidden reasoning or private chain-of-thought; provide only the final helpful answer. ${aiAnnotationCapabilityPrompt}`
 
   if (promptType === 'ask_document') {
     const context = input.context?.length
@@ -113,14 +116,14 @@ const buildMessages = (input: RunAIActionInput): ChatMessage[] => {
 
 const normalizeBaseUrl = (baseUrl: string): string => baseUrl.replace(/\/+$/, '')
 
-const extractDelta = (payload: unknown): string => {
+const extractDelta = (payload: unknown): { content: string; reasoning: string } => {
   if (!payload || typeof payload !== 'object') {
-    return ''
+    return { content: '', reasoning: '' }
   }
 
   const choices = (payload as { choices?: unknown }).choices
   if (!Array.isArray(choices) || choices.length === 0) {
-    return ''
+    return { content: '', reasoning: '' }
   }
 
   const first = choices[0] as {
@@ -129,7 +132,23 @@ const extractDelta = (payload: unknown): string => {
   }
 
   const content = first.delta?.content ?? first.message?.content
-  return typeof content === 'string' ? content : ''
+  const reasoning = first.delta?.reasoning_content
+
+  return {
+    content: typeof content === 'string' ? content : '',
+    reasoning: typeof reasoning === 'string' ? reasoning : ''
+  }
+}
+
+const wrapReasoningOutput = (reasoning: string, output: string): string => {
+  const cleanedReasoning = reasoning.trim().replace(/-->/g, '-- >')
+  const cleanedOutput = output.trim()
+
+  if (!cleanedReasoning) {
+    return cleanedOutput
+  }
+
+  return `<!-- RP_REASONING\n${cleanedReasoning}\n-->\n\n${cleanedOutput}`.trim()
 }
 
 const parseSseLine = (line: string): string | null => {
@@ -154,6 +173,7 @@ async function streamOpenAICompatibleCompletion(options: {
   const { requestId, provider, apiKey, messages, onEvent, saveArtifact } = options
   const model = provider.defaultModel
   let output = ''
+  let reasoningOutput = ''
 
   onEvent({
     requestId,
@@ -211,18 +231,29 @@ async function streamOpenAICompatibleCompletion(options: {
 
       const delta = extractDelta(JSON.parse(data))
 
-      if (delta) {
-        output += delta
+      if (delta.reasoning) {
+        reasoningOutput += delta.reasoning
         onEvent({
           requestId,
           type: 'delta',
-          text: delta
+          text: delta.reasoning,
+          channel: 'reasoning'
+        })
+      }
+
+      if (delta.content) {
+        output += delta.content
+        onEvent({
+          requestId,
+          type: 'delta',
+          text: delta.content,
+          channel: 'content'
         })
       }
     }
   }
 
-  const artifact = saveArtifact(output.trim())
+  const artifact = saveArtifact(wrapReasoningOutput(reasoningOutput, output))
 
   onEvent({
     requestId,

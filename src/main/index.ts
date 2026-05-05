@@ -3,6 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   ChatMessage,
+  aiAnnotationCapabilityPrompt,
   runOpenAICompatibleChatCompletion,
   runOpenAICompatibleCompletion
 } from './ai'
@@ -35,6 +36,15 @@ const toArrayBuffer = (buffer: Buffer): ArrayBuffer =>
 
 const sanitizeFileName = (value: string): string =>
   (value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim() || 'reading-marks').slice(0, 120)
+
+const stripAIAnnotationDirectives = (value: string): string =>
+  value.replace(/<!--\s*RP_ANNOTATIONS\s*[\s\S]*?\s*-->/gi, '').trim()
+
+const stripAIReasoningDirectives = (value: string): string =>
+  value.replace(/<!--\s*RP_REASONING\s*[\s\S]*?\s*-->/gi, '').trim()
+
+const stripAIControlDirectives = (value: string): string =>
+  stripAIAnnotationDirectives(stripAIReasoningDirectives(value))
 
 const createWindow = (): void => {
   mainWindow = new BrowserWindow({
@@ -497,6 +507,18 @@ const registerIpc = (): void => {
             : message.content
       }))
     ]
+    const systemMessage = messages[0]
+
+    if (systemMessage) {
+      systemMessage.content = `${systemMessage.content}\n\n${aiAnnotationCapabilityPrompt}`
+    }
+
+    for (const message of messages) {
+      if (message.role === 'assistant') {
+        message.content = stripAIControlDirectives(message.content)
+      }
+    }
+
     const sendEvent = (payload: AIStreamEvent): void => {
       event.sender.send('ai:streamEvent', payload)
     }
@@ -522,7 +544,7 @@ const registerIpc = (): void => {
           database.createAIChatMessage({
             conversationId: input.conversationId,
             role: 'assistant',
-            content: output,
+            content: stripAIAnnotationDirectives(output),
             pageNumber: input.pageNumber,
             providerId: provider.id,
             model: provider.defaultModel,

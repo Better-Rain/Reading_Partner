@@ -281,6 +281,7 @@ export type AIStreamEvent =
       requestId: string
       type: 'delta'
       text: string
+      channel?: 'content' | 'reasoning'
     }
   | {
       requestId: string
