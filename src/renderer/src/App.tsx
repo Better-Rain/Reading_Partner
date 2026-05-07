@@ -61,6 +61,7 @@ import {
 } from './hooks/useSearchHighlightLocator'
 import { useReaderViewportReset } from './hooks/useReaderViewportReset'
 import { useDocumentTextIndex } from './hooks/useDocumentTextIndex'
+import { useAnnotationUndo } from './hooks/useAnnotationUndo'
 import { getStoredReaderName, toPdfBlobUrl } from './readerLocalState'
 
 type PanelTab = InspectorTab
@@ -70,21 +71,6 @@ type SelectionState = {
   y: number
   rects: AnnotationRect[]
 }
-
-type AnnotationUndoAction =
-  | {
-      kind: 'create'
-      annotation: AnnotationRecord
-    }
-  | {
-      kind: 'delete'
-      annotation: AnnotationRecord
-    }
-  | {
-      kind: 'update'
-      before: AnnotationRecord
-      after: AnnotationRecord
-    }
 
 const minScale = 0.75
 const maxScale = 3
@@ -142,7 +128,6 @@ function App(): JSX.Element {
   const [chatDraft, setChatDraft] = useState('')
   const [chatTitleDraft, setChatTitleDraft] = useState('')
   const [readerName, setReaderName] = useState(getStoredReaderName)
-  const [annotationUndoStack, setAnnotationUndoStack] = useState<AnnotationUndoAction[]>([])
   const [aiOperations, setAiOperations] = useState<AIOperationRecord[]>([])
   const [annotationFilters, setAnnotationFilters] =
     useState<AnnotationFilterState>(defaultAnnotationFilters)
@@ -274,6 +259,14 @@ function App(): JSX.Element {
     setActiveDocument,
     setStatus
   })
+  const {
+    pushAnnotationUndo,
+    resetAnnotationUndoStack,
+    undoLastAnnotationAction
+  } = useAnnotationUndo({
+    setAnnotations,
+    setStatus
+  })
 
   const clearSearch = (): void => {
     setSearchQuery('')
@@ -281,10 +274,6 @@ function App(): JSX.Element {
     setIsSearching(false)
     setActiveSearchTarget(null)
     setTemporarySearchHighlight(null)
-  }
-
-  const pushAnnotationUndo = (action: AnnotationUndoAction): void => {
-    setAnnotationUndoStack((items) => [...items.slice(-39), action])
   }
 
   const createAIAssistedAnnotations = async (
@@ -609,7 +598,7 @@ function App(): JSX.Element {
     setSelection(null)
     setSelectionNoteDraft('')
     setIsSelectionNoteEditorOpen(false)
-    setAnnotationUndoStack([])
+    resetAnnotationUndoStack()
     setAiOperations([])
     clearSearch()
     setQaQuestion('')
@@ -643,7 +632,7 @@ function App(): JSX.Element {
     })
     setPageNumber(1)
     setSelection(null)
-    setAnnotationUndoStack([])
+    resetAnnotationUndoStack()
     setAiOperations([])
     clearSearch()
     setQaQuestion('')
@@ -937,40 +926,6 @@ function App(): JSX.Element {
     setStatus('已更新批注')
   }
 
-  const undoLastAnnotationAction = async (): Promise<void> => {
-    const action = annotationUndoStack.at(-1)
-
-    if (!action) {
-      setStatus('没有可撤销的批注操作')
-      return
-    }
-
-    setAnnotationUndoStack((items) => items.slice(0, -1))
-
-    if (action.kind === 'create') {
-      await window.readingPartner.deleteAnnotation(action.annotation.id)
-      setAnnotations((items) => items.filter((item) => item.id !== action.annotation.id))
-      setStatus('已撤销新增批注')
-      return
-    }
-
-    if (action.kind === 'delete') {
-      const restored = await window.readingPartner.restoreAnnotation(action.annotation)
-      setAnnotations((items) =>
-        [...items.filter((item) => item.id !== restored.id), restored].sort(
-          (first, second) =>
-            first.pageNumber - second.pageNumber || first.createdAt.localeCompare(second.createdAt)
-        )
-      )
-      setStatus('已撤销删除批注')
-      return
-    }
-
-    const restored = await window.readingPartner.restoreAnnotation(action.before)
-    setAnnotations((items) => items.map((item) => (item.id === restored.id ? restored : item)))
-    setStatus('已撤销批注编辑')
-  }
-
   const exportReadingMarks = async (): Promise<void> => {
     if (!activeDocument) {
       return
@@ -992,7 +947,7 @@ function App(): JSX.Element {
 
     if (result) {
       await refreshAnnotations(activeDocument.id)
-      setAnnotationUndoStack([])
+      resetAnnotationUndoStack()
       setStatus(`已导入 ${result.annotationCount} 条阅读记录`)
     }
   }
