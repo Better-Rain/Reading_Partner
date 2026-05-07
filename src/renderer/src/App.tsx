@@ -3,7 +3,6 @@ import type { MouseEvent as ReactMouseEvent, WheelEvent } from 'react'
 import type { Source } from 'react-pdf/dist/shared/types.js'
 import {
   AIChatMessageRecord,
-  AIConversationRecord,
   AIProviderRecord,
   AIPromptType,
   AIStreamEvent,
@@ -61,6 +60,7 @@ import { useReaderViewportReset } from './hooks/useReaderViewportReset'
 import { useDocumentTextIndex } from './hooks/useDocumentTextIndex'
 import { useAnnotationUndo } from './hooks/useAnnotationUndo'
 import { useAIOperations } from './hooks/useAIOperations'
+import { useAIConversations } from './hooks/useAIConversations'
 import { getStoredReaderName, toPdfBlobUrl } from './readerLocalState'
 
 type PanelTab = InspectorTab
@@ -120,12 +120,6 @@ function App(): JSX.Element {
   const [selectionNoteDraft, setSelectionNoteDraft] = useState('')
   const [isSelectionNoteEditorOpen, setIsSelectionNoteEditorOpen] = useState(false)
   const [qaQuestion, setQaQuestion] = useState('')
-  const [aiConversations, setAiConversations] = useState<AIConversationRecord[]>([])
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
-  const [isChatDrawerOpen, setIsChatDrawerOpen] = useState(false)
-  const [chatMessages, setChatMessages] = useState<AIChatMessageRecord[]>([])
-  const [chatDraft, setChatDraft] = useState('')
-  const [chatTitleDraft, setChatTitleDraft] = useState('')
   const [readerName, setReaderName] = useState(getStoredReaderName)
   const [annotationFilters, setAnnotationFilters] =
     useState<AnnotationFilterState>(defaultAnnotationFilters)
@@ -174,11 +168,6 @@ function App(): JSX.Element {
   const readyProvider = useMemo(
     () => providers.find((provider) => provider.enabled && configuredProviderIds.has(provider.id)) ?? null,
     [configuredProviderIds, providers]
-  )
-
-  const activeConversation = useMemo(
-    () => aiConversations.find((conversation) => conversation.id === activeConversationId) ?? null,
-    [activeConversationId, aiConversations]
   )
 
   useEffect(() => {
@@ -276,6 +265,29 @@ function App(): JSX.Element {
     setAnnotations,
     setStatus
   })
+  const {
+    aiConversations,
+    activeConversation,
+    activeConversationId,
+    isChatDrawerOpen,
+    chatMessages,
+    chatDraft,
+    chatTitleDraft,
+    setChatDraft,
+    setChatTitleDraft,
+    setIsChatDrawerOpen,
+    refreshAIConversations,
+    selectAIConversation,
+    startNewAIConversation,
+    createAIConversation,
+    updateAIConversationTitle,
+    refreshAIConversationAfterRun,
+    appendOptimisticChatMessage
+  } = useAIConversations({
+    activeDocument,
+    setActiveTab,
+    setStatus
+  })
 
   const clearSearch = (): void => {
     setSearchQuery('')
@@ -283,74 +295,6 @@ function App(): JSX.Element {
     setIsSearching(false)
     setActiveSearchTarget(null)
     setTemporarySearchHighlight(null)
-  }
-
-  const refreshAIConversations = async (documentId: string): Promise<void> => {
-    const conversations = await window.readingPartner.listAIConversations(documentId)
-    setAiConversations(conversations)
-
-    const nextActive = conversations[0] ?? null
-    setActiveConversationId(nextActive?.id ?? null)
-    setChatMessages(
-      nextActive ? await window.readingPartner.listAIChatMessages(nextActive.id) : []
-    )
-  }
-
-  const selectAIConversation = async (conversationId: string): Promise<void> => {
-    setActiveConversationId(conversationId)
-    setChatMessages(await window.readingPartner.listAIChatMessages(conversationId))
-    setChatTitleDraft('')
-    setIsChatDrawerOpen(true)
-  }
-
-  const startNewAIConversation = (): void => {
-    if (!activeDocument) {
-      return
-    }
-
-    setActiveConversationId(null)
-    setChatMessages([])
-    setChatDraft('')
-    setChatTitleDraft('')
-    setIsChatDrawerOpen(true)
-    setActiveTab('ai')
-    setStatus('正在创建新对话，发送第一条消息后保存')
-  }
-
-  const createAIConversation = async (title?: string): Promise<AIConversationRecord | null> => {
-    if (!activeDocument) {
-      return null
-    }
-
-    const conversation = await window.readingPartner.createAIConversation(
-      activeDocument.id,
-      '共读对话'
-    )
-    const titledConversation = title?.trim()
-      ? await window.readingPartner.updateAIConversationTitle({ id: conversation.id, title: title.trim() })
-      : conversation
-    setAiConversations((items) => [titledConversation, ...items])
-    setActiveConversationId(titledConversation.id)
-    setChatMessages([])
-    setIsChatDrawerOpen(true)
-    setStatus('已创建共读对话')
-
-    return titledConversation
-  }
-
-  const updateAIConversationTitle = async (conversationId: string, title: string): Promise<void> => {
-    const trimmed = title.trim()
-
-    if (!trimmed) {
-      return
-    }
-
-    const updated = await window.readingPartner.updateAIConversationTitle({
-      id: conversationId,
-      title: trimmed
-    })
-    setAiConversations((items) => items.map((item) => (item.id === conversationId ? updated : item)))
-    setStatus('已更新对话名称')
   }
 
   const searchDocument = async (query = searchQuery): Promise<void> => {
@@ -438,10 +382,7 @@ function App(): JSX.Element {
     const visibleOutputForNote = stripAIReasoningBlock(displayOutput)
 
     if (currentRun?.source === 'chat' && currentRun.conversationId) {
-      const [messages, conversations] = await Promise.all([
-        window.readingPartner.listAIChatMessages(currentRun.conversationId),
-        window.readingPartner.listAIConversations(event.artifact.documentId)
-      ])
+      await refreshAIConversationAfterRun(currentRun.conversationId, event.artifact.documentId)
       const createdAnnotations = await createAIAssistedAnnotations(
         event.artifact.documentId,
         assistedAnnotationDrafts,
@@ -449,9 +390,6 @@ function App(): JSX.Element {
       )
 
       registerAIOperation(event.requestId, createdAnnotations, currentRun.conversationId)
-
-      setChatMessages(messages)
-      setAiConversations(conversations)
       setAiRun((current) =>
         current && current.requestId === event.requestId
           ? { ...current, status: 'done', output: visibleOutputForNote, reasoningOutput: finalReasoning }
@@ -806,7 +744,7 @@ function App(): JSX.Element {
       createdAt: new Date().toISOString()
     }
 
-    setChatMessages((items) => [...items, optimisticMessage])
+    appendOptimisticChatMessage(optimisticMessage)
     setIsChatDrawerOpen(true)
     setChatDraft('')
     setChatTitleDraft('')
