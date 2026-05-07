@@ -18,11 +18,13 @@ import {
 } from '../../shared/types'
 import {
   extractAIReasoning,
+  makeConversationTitle,
   stripAIReasoningBlock
 } from './aiText'
 import {
   aiDefaultAnnotationColor,
   extractAIAssistedAnnotations,
+  normalizeAIAssistedNote,
   type AIAssistedAnnotation
 } from './aiAnnotations'
 import { AIOperationRecord, AIRunState, promptLabels } from './aiPanelTypes'
@@ -58,6 +60,7 @@ import {
   useSearchHighlightLocator
 } from './hooks/useSearchHighlightLocator'
 import { useReaderViewportReset } from './hooks/useReaderViewportReset'
+import { getStoredReaderName, toPdfBlobUrl } from './readerLocalState'
 
 type PanelTab = InspectorTab
 type SelectionState = {
@@ -99,29 +102,6 @@ const clampScale = (value: number): number =>
 
 const roundRectValue = (value: number): number => Number(value.toFixed(2))
 
-const makeConversationTitle = (message: string): string => {
-  const normalized = message
-    .replace(/[`*_>#-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-
-  if (!normalized) {
-    return '共读对话'
-  }
-
-  return normalized.length > 24 ? `${normalized.slice(0, 24)}...` : normalized
-}
-
-const getStoredReaderName = (): string => {
-  const value = window.localStorage.getItem('reading-partner.reader-name')?.trim()
-  return value || '本机读者'
-}
-
-const toPdfBlobUrl = (data: ArrayBuffer | Uint8Array): string => {
-  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data)
-  const stableCopy = bytes.slice()
-  return URL.createObjectURL(new Blob([stableCopy], { type: 'application/pdf' }))
-}
 
 function App(): JSX.Element {
   const [documents, setDocuments] = useState<DocumentRecord[]>([])
@@ -295,18 +275,6 @@ function App(): JSX.Element {
 
   const pushAnnotationUndo = (action: AnnotationUndoAction): void => {
     setAnnotationUndoStack((items) => [...items.slice(-39), action])
-  }
-
-  const normalizeAIAssistedNote = (note: string): string => {
-    let normalized = note.trim()
-
-    for (let index = 0; index < 3; index += 1) {
-      normalized = normalized
-        .replace(/^(AI\s*)?(段落批注|词汇批注|辅助批注)[：:\s]+/i, '')
-        .trim()
-    }
-
-    return normalized || note.trim()
   }
 
   const createAIAssistedAnnotations = async (

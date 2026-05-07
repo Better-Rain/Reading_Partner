@@ -29,3 +29,16 @@ export const composeAIOutputWithReasoning = (output: string, reasoning: string):
 
   return `<!-- RP_REASONING\n${trimmedReasoning}\n-->\n\n${trimmedOutput}`.trim()
 }
+
+export const makeConversationTitle = (message: string): string => {
+  const normalized = message
+    .replace(/[`*_>#-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!normalized) {
+    return '共读对话'
+  }
+
+  return normalized.length > 24 ? `${normalized.slice(0, 24)}...` : normalized
+}

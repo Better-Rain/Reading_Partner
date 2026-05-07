@@ -11,6 +11,18 @@ export type AIAssistedAnnotation = {
 export const aiDefaultAnnotationColor = '#c7d2fe'
 export const maxAIAssistedAnnotations = 2
 
+export const normalizeAIAssistedNote = (note: string): string => {
+  let normalized = note.trim()
+
+  for (let index = 0; index < 3; index += 1) {
+    normalized = normalized
+      .replace(/^(AI\s*)?(段落批注|词汇批注|辅助批注)[：:\s]+/i, '')
+      .trim()
+  }
+
+  return normalized || note.trim()
+}
+
 const normalizeAIAssistedColor = (value: unknown, allowedColors: string[]): string => {
   if (typeof value !== 'string') {
     return aiDefaultAnnotationColor
