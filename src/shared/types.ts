@@ -27,7 +27,36 @@ export type DocumentTextIndexStatus = {
 
 export type DocumentTextIndexResult = DocumentTextIndexStatus & {
   skipped: boolean
+  cancelled?: boolean
 }
+
+export type DocumentTextIndexEvent =
+  | {
+      documentId: string
+      type: 'start'
+      pageCount: number
+    }
+  | {
+      documentId: string
+      type: 'progress'
+      pageCount: number
+      pagesIndexed: number
+      chunksIndexed: number
+    }
+  | {
+      documentId: string
+      type: 'done'
+      result: DocumentTextIndexResult
+    }
+  | {
+      documentId: string
+      type: 'cancelled'
+    }
+  | {
+      documentId: string
+      type: 'error'
+      message: string
+    }
 
 export type DocumentSearchResult = {
   id: string
@@ -308,6 +337,8 @@ export type ReadingPartnerApi = {
   listDocuments: () => Promise<DocumentRecord[]>
   getDocumentTextIndexStatus: (documentId: string) => Promise<DocumentTextIndexStatus>
   indexDocumentText: (documentId: string) => Promise<DocumentTextIndexResult>
+  cancelDocumentTextIndex: (documentId: string) => Promise<boolean>
+  onDocumentTextIndexEvent: (callback: (event: DocumentTextIndexEvent) => void) => () => void
   searchDocumentText: (documentId: string, query: string) => Promise<DocumentSearchResult[]>
   listAnnotations: (documentId: string) => Promise<AnnotationRecord[]>
   createAnnotation: (input: CreateAnnotationInput) => Promise<AnnotationRecord>

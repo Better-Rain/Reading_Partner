@@ -5,6 +5,7 @@ import {
   AskDocumentQuestionInput,
   CreateAnnotationInput,
   CreateVocabularyInput,
+  DocumentTextIndexEvent,
   ReadingPartnerApi,
   RunAIChatInput,
   RunAIActionInput,
@@ -24,6 +25,18 @@ const api: ReadingPartnerApi = {
   getDocumentTextIndexStatus: (documentId: string) =>
     ipcRenderer.invoke('documents:textIndexStatus', documentId),
   indexDocumentText: (documentId: string) => ipcRenderer.invoke('documents:indexText', documentId),
+  cancelDocumentTextIndex: (documentId: string) =>
+    ipcRenderer.invoke('documents:cancelTextIndex', documentId),
+  onDocumentTextIndexEvent: (callback: (event: DocumentTextIndexEvent) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: DocumentTextIndexEvent): void => {
+      callback(payload)
+    }
+
+    ipcRenderer.on('documents:textIndexEvent', listener)
+    return () => {
+      ipcRenderer.removeListener('documents:textIndexEvent', listener)
+    }
+  },
   searchDocumentText: (documentId: string, query: string) =>
     ipcRenderer.invoke('documents:searchText', documentId, query),
   listAnnotations: (documentId: string) => ipcRenderer.invoke('annotations:list', documentId),

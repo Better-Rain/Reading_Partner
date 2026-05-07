@@ -5,7 +5,8 @@ import {
   Hand,
   Minus,
   MousePointer2,
-  Plus
+  Plus,
+  X
 } from 'lucide-react'
 import type { AnnotationColorPreset } from './NotesPanel'
 import type { AnnotationInteractionMode } from './AnnotationOverlay'
@@ -19,12 +20,14 @@ type ReaderToolbarProps = {
   pageNumber: number
   selectedAnnotationColor: string
   status: string
+  isTextIndexing: boolean
   title: string
   onAnnotationInteractionModeChange: (mode: AnnotationInteractionMode) => void
   onColorChange: (color: string) => void
   onNextPage: () => void
   onPageNumberChange: (pageNumber: number) => void
   onPreviousPage: () => void
+  onCancelTextIndex: () => void
   onTogglePanMode: () => void
   onZoomIn: () => void
   onZoomOut: () => void
@@ -39,12 +42,14 @@ export function ReaderToolbar({
   pageNumber,
   selectedAnnotationColor,
   status,
+  isTextIndexing,
   title,
   onAnnotationInteractionModeChange,
   onColorChange,
   onNextPage,
   onPageNumberChange,
   onPreviousPage,
+  onCancelTextIndex,
   onTogglePanMode,
   onZoomIn,
   onZoomOut
@@ -134,6 +139,11 @@ export function ReaderToolbar({
         >
           <Hand size={18} />
         </button>
+        {isTextIndexing && (
+          <button className="icon-button" title="取消文本索引" onClick={onCancelTextIndex}>
+            <X size={18} />
+          </button>
+        )}
       </div>
     </header>
   )

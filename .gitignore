@@ -4,6 +4,7 @@ dist-electron/
 out/
 release/
 .vite/
+.codex/
 .env
 .env.*
 !.env.example

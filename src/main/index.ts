@@ -10,7 +10,7 @@ import {
 import { ReadingPartnerDatabase } from './database'
 import { parseDictionaryCsv } from './dictionaryImport'
 import { KeyStore } from './keyStore'
-import { extractPdfText } from './pdfText'
+import { extractPdfText, PdfTextExtractionCancelledError } from './pdfText'
 import { resolveStarDictIfoPath, StarDictSource } from './stardict'
 import {
   AIStreamEvent,
@@ -18,6 +18,7 @@ import {
   AskDocumentQuestionInput,
   CreateAnnotationInput,
   CreateVocabularyInput,
+  DocumentTextIndexEvent,
   RunAIChatInput,
   RunAIActionInput,
   UpdateAnnotationInput,
@@ -31,6 +32,7 @@ let database: ReadingPartnerDatabase
 let keyStore: KeyStore
 const starDictSources = new Map<string, StarDictSource>()
 const aiRequestControllers = new Map<string, AbortController>()
+const documentTextIndexControllers = new Map<string, AbortController>()
 
 const toArrayBuffer = (buffer: Buffer): ArrayBuffer =>
   buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer
@@ -57,6 +59,22 @@ const createAIRequestController = (requestId: string): AbortController => {
 const releaseAIRequestController = (requestId: string, controller: AbortController): void => {
   if (aiRequestControllers.get(requestId) === controller) {
     aiRequestControllers.delete(requestId)
+  }
+}
+
+const createDocumentTextIndexController = (documentId: string): AbortController => {
+  documentTextIndexControllers.get(documentId)?.abort()
+  const controller = new AbortController()
+  documentTextIndexControllers.set(documentId, controller)
+  return controller
+}
+
+const releaseDocumentTextIndexController = (
+  documentId: string,
+  controller: AbortController
+): void => {
+  if (documentTextIndexControllers.get(documentId) === controller) {
+    documentTextIndexControllers.delete(documentId)
   }
 }
 
@@ -139,27 +157,103 @@ const registerIpc = (): void => {
     database.getDocumentTextIndexStatus(documentId)
   )
 
-  ipcMain.handle('documents:indexText', async (_event, documentId: string) => {
+  ipcMain.handle('documents:cancelTextIndex', (_event, documentId: string) => {
+    const controller = documentTextIndexControllers.get(documentId)
+
+    if (!controller) {
+      return false
+    }
+
+    controller.abort()
+    return true
+  })
+
+  ipcMain.handle('documents:indexText', async (event, documentId: string) => {
     const document = database.getDocument(documentId)
     const currentStatus = database.getDocumentTextIndexStatus(documentId)
+    const sendEvent = (payload: DocumentTextIndexEvent): void => {
+      event.sender.send('documents:textIndexEvent', payload)
+    }
 
     if (
       currentStatus.pageCount &&
       currentStatus.pagesIndexed >= currentStatus.pageCount
     ) {
-      return {
+      const result = {
         ...currentStatus,
         skipped: true
       }
+
+      sendEvent({
+        documentId,
+        type: 'done',
+        result
+      })
+
+      return result
     }
 
-    const extracted = await extractPdfText(document.filePath)
-    return database.replaceDocumentTextIndex({
-      documentId,
-      pageCount: extracted.pageCount,
-      pages: extracted.pages,
-      chunks: extracted.chunks
-    })
+    const controller = createDocumentTextIndexController(documentId)
+
+    try {
+      const extracted = await extractPdfText(document.filePath, {
+        signal: controller.signal,
+        onProgress: (progress) => {
+          if (progress.pagesIndexed === 0) {
+            sendEvent({
+              documentId,
+              type: 'start',
+              pageCount: progress.pageCount
+            })
+            return
+          }
+
+          sendEvent({
+            documentId,
+            type: 'progress',
+            pageCount: progress.pageCount,
+            pagesIndexed: progress.pagesIndexed,
+            chunksIndexed: progress.chunksIndexed
+          })
+        }
+      })
+      const result = database.replaceDocumentTextIndex({
+        documentId,
+        pageCount: extracted.pageCount,
+        pages: extracted.pages,
+        chunks: extracted.chunks
+      })
+
+      sendEvent({
+        documentId,
+        type: 'done',
+        result
+      })
+
+      return result
+    } catch (error) {
+      if (error instanceof PdfTextExtractionCancelledError) {
+        sendEvent({
+          documentId,
+          type: 'cancelled'
+        })
+
+        return {
+          ...database.getDocumentTextIndexStatus(documentId),
+          skipped: true,
+          cancelled: true
+        }
+      }
+
+      sendEvent({
+        documentId,
+        type: 'error',
+        message: error instanceof Error ? error.message : String(error)
+      })
+      throw error
+    } finally {
+      releaseDocumentTextIndexController(documentId, controller)
+    }
   })
 
   ipcMain.handle('documents:searchText', (_event, documentId: string, query: string) =>
