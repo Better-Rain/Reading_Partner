@@ -141,6 +141,10 @@ const registerIpc = (): void => {
 
   ipcMain.handle('documents:list', () => database.listDocuments())
 
+  ipcMain.handle('documents:saveProgress', (_event, documentId: string, pageNumber: number) =>
+    database.saveDocumentProgress(documentId, pageNumber)
+  )
+
   ipcMain.handle('documents:openPdfDialog', async () => {
     const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
       title: 'Open PDF',

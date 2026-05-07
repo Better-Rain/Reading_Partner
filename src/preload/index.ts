@@ -22,6 +22,8 @@ const api: ReadingPartnerApi = {
   openPdfDialog: () => ipcRenderer.invoke('documents:openPdfDialog'),
   readPdf: (documentId: string) => ipcRenderer.invoke('documents:readPdf', documentId),
   listDocuments: () => ipcRenderer.invoke('documents:list'),
+  saveDocumentProgress: (documentId: string, pageNumber: number) =>
+    ipcRenderer.invoke('documents:saveProgress', documentId, pageNumber),
   getDocumentTextIndexStatus: (documentId: string) =>
     ipcRenderer.invoke('documents:textIndexStatus', documentId),
   indexDocumentText: (documentId: string) => ipcRenderer.invoke('documents:indexText', documentId),

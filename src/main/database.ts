@@ -38,6 +38,7 @@ type DocumentRow = {
   file_path: string
   file_size: number
   page_count: number | null
+  last_page_number: number
   created_at: string
   last_opened_at: string
 }
@@ -165,6 +166,7 @@ const toDocument = (row: DocumentRow): DocumentRecord => ({
   filePath: row.file_path,
   fileSize: row.file_size,
   pageCount: row.page_count,
+  lastPageNumber: Math.max(1, row.last_page_number ?? 1),
   createdAt: row.created_at,
   lastOpenedAt: row.last_opened_at
 })
@@ -402,13 +404,29 @@ export class ReadingPartnerDatabase {
 
     this.db.run(
       `insert into documents (
-          id, title, file_path, file_size, page_count, created_at, last_opened_at
-        ) values (?, ?, ?, ?, ?, ?, ?)`,
-      [id, title, filePath, fileStat.size, null, timestamp, timestamp]
+          id, title, file_path, file_size, page_count, last_page_number, created_at, last_opened_at
+        ) values (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, title, filePath, fileStat.size, null, 1, timestamp, timestamp]
     )
     this.persist()
 
     return this.getDocument(id)
+  }
+
+  saveDocumentProgress(documentId: string, pageNumber: number): DocumentRecord {
+    const safePageNumber = Math.max(1, Math.floor(pageNumber))
+    const timestamp = now()
+    this.getDocument(documentId)
+    this.db.run(
+      `update documents
+       set last_page_number = ?,
+           last_opened_at = ?
+       where id = ?`,
+      [safePageNumber, timestamp, documentId]
+    )
+    this.persist()
+
+    return this.getDocument(documentId)
   }
 
   getDocumentTextIndexStatus(documentId: string): DocumentTextIndexStatus {
@@ -1359,6 +1377,7 @@ export class ReadingPartnerDatabase {
         file_path text not null unique,
         file_size integer not null,
         page_count integer,
+        last_page_number integer not null default 1,
         created_at text not null,
         last_opened_at text not null
       );
@@ -1497,6 +1516,7 @@ export class ReadingPartnerDatabase {
     `)
 
     this.ensureColumn('annotations', 'author_name', "text not null default 'Reader'")
+    this.ensureColumn('documents', 'last_page_number', 'integer not null default 1')
     this.persist()
   }
 

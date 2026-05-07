@@ -185,6 +185,28 @@ function App(): JSX.Element {
     }
   }, [pdfUrl])
 
+  useEffect(() => {
+    if (!activeDocument || pageNumber < 1) {
+      return
+    }
+
+    const timeout = window.setTimeout(() => {
+      void window.readingPartner
+        .saveDocumentProgress(activeDocument.id, pageNumber)
+        .then((updated) => {
+          setActiveDocument((current) => (current?.id === updated.id ? updated : current))
+          setDocuments((items) =>
+            items.map((item) => (item.id === updated.id ? updated : item))
+          )
+        })
+        .catch((error) => {
+          console.error('Failed to save reading progress', error)
+        })
+    }, 350)
+
+    return () => window.clearTimeout(timeout)
+  }, [activeDocument?.id, pageNumber])
+
   const refreshLibrary = async (): Promise<void> => {
     const list = await window.readingPartner.listDocuments()
     setDocuments(list)
@@ -380,6 +402,7 @@ function App(): JSX.Element {
     loadedPdfRef.current = null
     const data = await window.readingPartner.readPdf(document.id)
     const nextUrl = toPdfBlobUrl(data)
+    const initialPageNumber = Math.max(1, document.lastPageNumber)
     setActiveDocument(document)
     requestReaderViewportReset()
     setPdfUrl((currentUrl) => {
@@ -388,7 +411,7 @@ function App(): JSX.Element {
       }
       return nextUrl
     })
-    setPageNumber(1)
+    setPageNumber(initialPageNumber)
     setSelection(null)
     setSelectionNoteDraft('')
     setIsSelectionNoteEditorOpen(false)
@@ -417,6 +440,7 @@ function App(): JSX.Element {
     const nextUrl = toPdfBlobUrl(result.data)
     setPdfError(null)
     loadedPdfRef.current = null
+    const initialPageNumber = Math.max(1, result.document.lastPageNumber)
     setActiveDocument(result.document)
     requestReaderViewportReset()
     setPdfUrl((currentUrl) => {
@@ -425,7 +449,7 @@ function App(): JSX.Element {
       }
       return nextUrl
     })
-    setPageNumber(1)
+    setPageNumber(initialPageNumber)
     setSelection(null)
     resetAnnotationUndoStack()
     resetAIOperations()
@@ -662,6 +686,10 @@ function App(): JSX.Element {
             }
 
             loadedPdfRef.current = { documentId, pageCount: numPages }
+            if (pageNumber > numPages) {
+              requestReaderViewportReset()
+              setPageNumber(numPages)
+            }
             setStatus(`共 ${numPages} 页`)
             if (activeDocument) {
               void ensureDocumentTextIndex(activeDocument, numPages)

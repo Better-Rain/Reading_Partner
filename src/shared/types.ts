@@ -13,6 +13,7 @@ export type DocumentRecord = {
   filePath: string
   fileSize: number
   pageCount: number | null
+  lastPageNumber: number
   createdAt: string
   lastOpenedAt: string
 }
@@ -335,6 +336,7 @@ export type ReadingPartnerApi = {
   openPdfDialog: () => Promise<OpenPdfResult | null>
   readPdf: (documentId: string) => Promise<ArrayBuffer>
   listDocuments: () => Promise<DocumentRecord[]>
+  saveDocumentProgress: (documentId: string, pageNumber: number) => Promise<DocumentRecord>
   getDocumentTextIndexStatus: (documentId: string) => Promise<DocumentTextIndexStatus>
   indexDocumentText: (documentId: string) => Promise<DocumentTextIndexResult>
   cancelDocumentTextIndex: (documentId: string) => Promise<boolean>
