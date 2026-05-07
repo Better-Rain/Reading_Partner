@@ -1,5 +1,6 @@
 import initSqlJs, { Database as SqlDatabase, SqlValue } from 'sql.js'
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
+import { rename, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { dirname } from 'node:path'
@@ -340,6 +341,7 @@ const createSearchSnippet = (text: string, terms: string[]): string => {
 export class ReadingPartnerDatabase {
   private persistTimer: ReturnType<typeof setTimeout> | null = null
   private dirty = false
+  private writeInProgress: Promise<void> | null = null
 
   private constructor(
     private readonly db: SqlDatabase,
@@ -1545,17 +1547,20 @@ export class ReadingPartnerDatabase {
     }
   }
 
-  flush(): void {
+  async flush(): Promise<void> {
     if (this.persistTimer) {
       clearTimeout(this.persistTimer)
       this.persistTimer = null
     }
 
-    if (!this.dirty) {
-      return
-    }
+    while (this.dirty || this.writeInProgress) {
+      if (this.writeInProgress) {
+        await this.writeInProgress
+        continue
+      }
 
-    this.writeSnapshot()
+      await this.writeSnapshot()
+    }
   }
 
   private persist(): void {
@@ -1568,19 +1573,38 @@ export class ReadingPartnerDatabase {
     this.persistTimer = setTimeout(() => {
       this.persistTimer = null
 
-      try {
-        this.writeSnapshot()
-      } catch (error) {
+      void this.writeSnapshot().catch((error) => {
         console.error('Failed to persist Reading Partner database', error)
-      }
+      })
     }, 250)
 
     this.persistTimer.unref?.()
   }
 
-  private writeSnapshot(): void {
-    writeFileSync(this.databasePath, this.db.export())
-    this.dirty = false
+  private async writeSnapshot(): Promise<void> {
+    while (this.dirty || this.writeInProgress) {
+      if (this.writeInProgress) {
+        await this.writeInProgress
+        continue
+      }
+
+      const snapshot = this.db.export()
+      this.dirty = false
+      const tempPath = `${this.databasePath}.${process.pid}.tmp`
+      this.writeInProgress = (async () => {
+        await writeFile(tempPath, snapshot)
+        await rename(tempPath, this.databasePath)
+      })()
+
+      try {
+        await this.writeInProgress
+      } catch (error) {
+        this.dirty = true
+        throw error
+      } finally {
+        this.writeInProgress = null
+      }
+    }
   }
 
   private get<T extends Record<string, unknown>>(sql: string, params: SqlValue[] = []): T | undefined {

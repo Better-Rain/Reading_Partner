@@ -33,6 +33,8 @@ let keyStore: KeyStore
 const starDictSources = new Map<string, StarDictSource>()
 const aiRequestControllers = new Map<string, AbortController>()
 const documentTextIndexControllers = new Map<string, AbortController>()
+let isReadyToQuit = false
+let isPreparingToQuit = false
 
 const toArrayBuffer = (buffer: Buffer): ArrayBuffer =>
   buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer
@@ -76,6 +78,14 @@ const releaseDocumentTextIndexController = (
   if (documentTextIndexControllers.get(documentId) === controller) {
     documentTextIndexControllers.delete(documentId)
   }
+}
+
+const closeStarDictSources = (): void => {
+  for (const source of starDictSources.values()) {
+    source.close()
+  }
+
+  starDictSources.clear()
 }
 
 const createWindow = (): void => {
@@ -731,12 +741,34 @@ app.on('window-all-closed', () => {
   }
 })
 
-app.on('before-quit', () => {
-  database.flush()
-
-  for (const source of starDictSources.values()) {
-    source.close()
+app.on('before-quit', (event) => {
+  if (isReadyToQuit) {
+    closeStarDictSources()
+    return
   }
 
-  starDictSources.clear()
+  event.preventDefault()
+
+  if (isPreparingToQuit) {
+    return
+  }
+
+  if (!database) {
+    closeStarDictSources()
+    isReadyToQuit = true
+    app.quit()
+    return
+  }
+
+  isPreparingToQuit = true
+  void database
+    .flush()
+    .catch((error) => {
+      console.error('Failed to flush Reading Partner database before quit', error)
+    })
+    .finally(() => {
+      closeStarDictSources()
+      isReadyToQuit = true
+      app.quit()
+    })
 })
