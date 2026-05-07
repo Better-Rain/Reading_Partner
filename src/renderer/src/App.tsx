@@ -1,18 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, WheelEvent } from 'react'
 import type { Source } from 'react-pdf/dist/shared/types.js'
-import { Document, Page } from 'react-pdf'
-import {
-  ChevronLeft,
-  ChevronRight,
-  Eye,
-  FileText,
-  Hand,
-  Minus,
-  MousePointer2,
-  Plus,
-  Upload,
-} from 'lucide-react'
 import {
   AIChatMessageRecord,
   AIConversationRecord,
@@ -42,7 +30,6 @@ import { AnnotationRect, normalizeAnnotationRects } from './annotationGeometry'
 import { AiPanel } from './components/AiPanel'
 import {
   AnnotationInteractionMode,
-  AnnotationOverlay,
   TemporarySearchHighlight
 } from './components/AnnotationOverlay'
 import { InspectorTabBar, type InspectorTab } from './components/InspectorTabBar'
@@ -58,6 +45,8 @@ import {
 } from './components/NotesPanel'
 import { SearchPanel } from './components/SearchPanel'
 import { SelectionToolbar } from './components/SelectionToolbar'
+import { ReaderSurface } from './components/ReaderSurface'
+import { ReaderToolbar } from './components/ReaderToolbar'
 import { SettingsPanel } from './components/SettingsPanel'
 import { VocabularyPanel } from './components/VocabularyPanel'
 import { WindowTitlebar } from './components/WindowTitlebar'
@@ -1337,201 +1326,77 @@ function App(): JSX.Element {
       />
 
       <main className="reader-column">
-        <header className="reader-toolbar">
-          <div>
-            <strong>{activeDocument?.title ?? '未选择 PDF'}</strong>
-            <span>{status}</span>
-          </div>
-          <div className="toolbar-controls">
-            <div className="annotation-mode-toggle" aria-label="批注交互模式">
-              <button
-                className={annotationInteractionMode === 'inspect' ? 'active' : ''}
-                disabled={!activeDocument}
-                title="查看批注"
-                onClick={() => setAnnotationInteractionMode('inspect')}
-              >
-                <Eye size={15} />
-                查看
-              </button>
-              <button
-                className={annotationInteractionMode === 'select' ? 'active' : ''}
-                disabled={!activeDocument}
-                title="文本选择"
-                onClick={() => setAnnotationInteractionMode('select')}
-              >
-                <MousePointer2 size={15} />
-                选择
-              </button>
-            </div>
-            <div className="reader-color-palette" aria-label="批注颜色">
-              {annotationColorPresets.map((preset) => (
-                <button
-                  className={selectedAnnotationColor === preset.value ? 'color-swatch active' : 'color-swatch'}
-                  disabled={!activeDocument}
-                  key={preset.value}
-                  onClick={() => setSelectedAnnotationColor(preset.value)}
-                  style={{ backgroundColor: preset.value }}
-                  title={`批注颜色：${preset.label}`}
-                />
-              ))}
-            </div>
-            <button
-              className="icon-button"
-              disabled={!activeDocument || pageNumber <= 1}
-              title="上一页"
-              onClick={() => {
-                requestReaderViewportReset()
-                setPageNumber((value) => Math.max(1, value - 1))
-              }}
-            >
-              <ChevronLeft size={18} />
-            </button>
-            <label className="page-input">
-              <input
-                disabled={!activeDocument}
-                max={pageCount || 1}
-                min={1}
-                type="number"
-                value={pageNumber}
-                onChange={(event) => {
-                  const next = Number(event.target.value)
-                  if (Number.isFinite(next)) {
-                    requestReaderViewportReset()
-                    setPageNumber(Math.min(Math.max(1, next), pageCount || 1))
-                  }
-                }}
-              />
-              <span>/ {pageCount || '-'}</span>
-            </label>
-            <button
-              className="icon-button"
-              disabled={!activeDocument || pageNumber >= pageCount}
-              title="下一页"
-              onClick={() => {
-                requestReaderViewportReset()
-                setPageNumber((value) => Math.min(pageCount, value + 1))
-              }}
-            >
-              <ChevronRight size={18} />
-            </button>
-            <button
-              className="icon-button"
-              disabled={!activeDocument}
-              title="缩小"
-              onClick={() => zoomBy(-scaleStep)}
-            >
-              <Minus size={18} />
-            </button>
-            <button
-              className="icon-button"
-              disabled={!activeDocument}
-              title="放大"
-              onClick={() => zoomBy(scaleStep)}
-            >
-              <Plus size={18} />
-            </button>
-            <button
-              className={isPanMode ? 'icon-button active' : 'icon-button'}
-              disabled={!activeDocument}
-              title="手型拖动 (D)"
-              onClick={() => setIsPanMode((value) => !value)}
-            >
-              <Hand size={18} />
-            </button>
-          </div>
-        </header>
+        <ReaderToolbar
+          annotationInteractionMode={annotationInteractionMode}
+          colorPresets={annotationColorPresets}
+          hasDocument={Boolean(activeDocument)}
+          isPanMode={isPanMode}
+          pageCount={pageCount}
+          pageNumber={pageNumber}
+          selectedAnnotationColor={selectedAnnotationColor}
+          status={status}
+          title={activeDocument?.title ?? '未选择 PDF'}
+          onAnnotationInteractionModeChange={setAnnotationInteractionMode}
+          onColorChange={setSelectedAnnotationColor}
+          onNextPage={() => {
+            requestReaderViewportReset()
+            setPageNumber((value) => Math.min(pageCount, value + 1))
+          }}
+          onPageNumberChange={(nextPageNumber) => {
+            requestReaderViewportReset()
+            setPageNumber(nextPageNumber)
+          }}
+          onPreviousPage={() => {
+            requestReaderViewportReset()
+            setPageNumber((value) => Math.max(1, value - 1))
+          }}
+          onTogglePanMode={() => setIsPanMode((value) => !value)}
+          onZoomIn={() => zoomBy(scaleStep)}
+          onZoomOut={() => zoomBy(-scaleStep)}
+        />
 
-        <div
-          className={[
-            'reader-surface',
-            isPanMode ? 'pan-enabled' : '',
-            isPanning ? 'is-panning' : ''
-          ]
-            .filter(Boolean)
-            .join(' ')}
-          ref={readerSurfaceRef}
-          onAuxClick={(event) => {
-            if (event.button === 1) {
-              event.preventDefault()
+        <ReaderSurface
+          annotations={visibleCurrentPageAnnotations}
+          file={pdfFile}
+          interactionMode={annotationInteractionMode}
+          isPanMode={isPanMode}
+          isPanning={isPanning}
+          pageNumber={pageNumber}
+          pdfError={pdfError}
+          readerSurfaceRef={readerSurfaceRef}
+          scale={scale}
+          temporaryHighlight={currentPageSearchHighlight}
+          onCaptureSelection={() => {
+            if (!suppressSelectionRef.current) {
+              captureSelection()
             }
           }}
-          onMouseUp={() => {
-            if (suppressSelectionRef.current) {
-              return
+          onDocumentLoadError={(message) => {
+            setPdfError(message)
+            setStatus(`PDF 打开失败：${message}`)
+          }}
+          onDocumentLoadSuccess={(numPages) => {
+            setPdfError(null)
+            setPageCount(numPages)
+            setStatus(`共 ${numPages} 页`)
+            if (activeDocument) {
+              void ensureDocumentTextIndex(activeDocument, numPages)
             }
-
-            captureSelection()
+          }}
+          onDocumentSourceError={(message) => {
+            setPdfError(message)
+            setStatus(`PDF 来源读取失败：${message}`)
           }}
           onMouseDown={handleReaderMouseDown}
-          onMouseLeave={() => {
-            if (!isPanning) {
-              stopReaderPan()
-            }
+          onOpenPdf={() => void openPdf()}
+          onPageLoadError={(message) => {
+            setPdfError(message)
+            setStatus(`PDF 页面渲染失败：${message}`)
           }}
+          onPageRenderSuccess={resetReaderViewportAfterRender}
+          onStopPan={stopReaderPan}
           onWheel={handleReaderWheel}
-        >
-          {pdfFile ? (
-            <div className="pdf-stage">
-              <Document
-                file={pdfFile}
-                error={
-                  <div className="empty-state error-state">
-                    <FileText size={44} />
-                    <h2>PDF 打开失败</h2>
-                    <p>{pdfError ?? 'PDF.js 无法加载这个文件。'}</p>
-                  </div>
-                }
-                loading={<div className="empty-state">正在解析 PDF...</div>}
-                onLoadError={(error) => {
-                  setPdfError(error.message)
-                  setStatus(`PDF 打开失败：${error.message}`)
-                }}
-                onLoadSuccess={({ numPages }) => {
-                  setPdfError(null)
-                  setPageCount(numPages)
-                  setStatus(`共 ${numPages} 页`)
-                  if (activeDocument) {
-                    void ensureDocumentTextIndex(activeDocument, numPages)
-                  }
-                }}
-                onSourceError={(error) => {
-                  setPdfError(error.message)
-                  setStatus(`PDF 来源读取失败：${error.message}`)
-                }}
-              >
-                <div className="pdf-page-frame">
-                  <Page
-                    pageNumber={pageNumber}
-                    renderAnnotationLayer
-                    renderTextLayer
-                    scale={scale}
-                    onLoadError={(error) => {
-                      setPdfError(error.message)
-                      setStatus(`PDF 页面渲染失败：${error.message}`)
-                    }}
-                    onRenderSuccess={resetReaderViewportAfterRender}
-                  />
-                  <AnnotationOverlay
-                    annotations={visibleCurrentPageAnnotations}
-                    interactionMode={annotationInteractionMode}
-                    scale={scale}
-                    temporaryHighlight={currentPageSearchHighlight}
-                  />
-                </div>
-              </Document>
-            </div>
-          ) : (
-            <div className="empty-state">
-              <FileText size={44} />
-              <h2>打开一本 PDF</h2>
-              <p>导入文献后，可以在这里阅读、划词、高亮、批注，并把 AI 解释保存回笔记。</p>
-              <button className="primary-action compact" onClick={() => void openPdf()}>
-                <Upload size={18} />
-                选择 PDF
-              </button>
-            </div>
-          )}
-        </div>
+        />
 
         {selection && (
           <SelectionToolbar

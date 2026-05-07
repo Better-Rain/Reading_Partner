@@ -1,0 +1,140 @@
+import {
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  Hand,
+  Minus,
+  MousePointer2,
+  Plus
+} from 'lucide-react'
+import type { AnnotationColorPreset } from './NotesPanel'
+import type { AnnotationInteractionMode } from './AnnotationOverlay'
+
+type ReaderToolbarProps = {
+  annotationInteractionMode: AnnotationInteractionMode
+  colorPresets: AnnotationColorPreset[]
+  hasDocument: boolean
+  isPanMode: boolean
+  pageCount: number
+  pageNumber: number
+  selectedAnnotationColor: string
+  status: string
+  title: string
+  onAnnotationInteractionModeChange: (mode: AnnotationInteractionMode) => void
+  onColorChange: (color: string) => void
+  onNextPage: () => void
+  onPageNumberChange: (pageNumber: number) => void
+  onPreviousPage: () => void
+  onTogglePanMode: () => void
+  onZoomIn: () => void
+  onZoomOut: () => void
+}
+
+export function ReaderToolbar({
+  annotationInteractionMode,
+  colorPresets,
+  hasDocument,
+  isPanMode,
+  pageCount,
+  pageNumber,
+  selectedAnnotationColor,
+  status,
+  title,
+  onAnnotationInteractionModeChange,
+  onColorChange,
+  onNextPage,
+  onPageNumberChange,
+  onPreviousPage,
+  onTogglePanMode,
+  onZoomIn,
+  onZoomOut
+}: ReaderToolbarProps): JSX.Element {
+  return (
+    <header className="reader-toolbar">
+      <div>
+        <strong>{title}</strong>
+        <span>{status}</span>
+      </div>
+      <div className="toolbar-controls">
+        <div className="annotation-mode-toggle" aria-label="批注交互模式">
+          <button
+            className={annotationInteractionMode === 'inspect' ? 'active' : ''}
+            disabled={!hasDocument}
+            title="查看批注"
+            onClick={() => onAnnotationInteractionModeChange('inspect')}
+          >
+            <Eye size={15} />
+            查看
+          </button>
+          <button
+            className={annotationInteractionMode === 'select' ? 'active' : ''}
+            disabled={!hasDocument}
+            title="文本选择"
+            onClick={() => onAnnotationInteractionModeChange('select')}
+          >
+            <MousePointer2 size={15} />
+            选择
+          </button>
+        </div>
+        <div className="reader-color-palette" aria-label="批注颜色">
+          {colorPresets.map((preset) => (
+            <button
+              className={selectedAnnotationColor === preset.value ? 'color-swatch active' : 'color-swatch'}
+              disabled={!hasDocument}
+              key={preset.value}
+              onClick={() => onColorChange(preset.value)}
+              style={{ backgroundColor: preset.value }}
+              title={`批注颜色：${preset.label}`}
+            />
+          ))}
+        </div>
+        <button
+          className="icon-button"
+          disabled={!hasDocument || pageNumber <= 1}
+          title="上一页"
+          onClick={onPreviousPage}
+        >
+          <ChevronLeft size={18} />
+        </button>
+        <label className="page-input">
+          <input
+            disabled={!hasDocument}
+            max={pageCount || 1}
+            min={1}
+            type="number"
+            value={pageNumber}
+            onChange={(event) => {
+              const next = Number(event.target.value)
+              if (Number.isFinite(next)) {
+                onPageNumberChange(Math.min(Math.max(1, next), pageCount || 1))
+              }
+            }}
+          />
+          <span>/ {pageCount || '-'}</span>
+        </label>
+        <button
+          className="icon-button"
+          disabled={!hasDocument || pageNumber >= pageCount}
+          title="下一页"
+          onClick={onNextPage}
+        >
+          <ChevronRight size={18} />
+        </button>
+        <button className="icon-button" disabled={!hasDocument} title="缩小" onClick={onZoomOut}>
+          <Minus size={18} />
+        </button>
+        <button className="icon-button" disabled={!hasDocument} title="放大" onClick={onZoomIn}>
+          <Plus size={18} />
+        </button>
+        <button
+          className={isPanMode ? 'icon-button active' : 'icon-button'}
+          disabled={!hasDocument}
+          title="手型拖动 (D)"
+          onClick={onTogglePanMode}
+        >
+          <Hand size={18} />
+        </button>
+      </div>
+    </header>
+  )
+}
