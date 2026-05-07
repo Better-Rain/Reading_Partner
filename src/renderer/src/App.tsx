@@ -57,6 +57,7 @@ import {
   ActiveSearchTarget,
   useSearchHighlightLocator
 } from './hooks/useSearchHighlightLocator'
+import { useReaderViewportReset } from './hooks/useReaderViewportReset'
 
 type PanelTab = InspectorTab
 type SelectionState = {
@@ -168,9 +169,10 @@ function App(): JSX.Element {
   const [aiRun, setAiRun] = useState<AIRunState | null>(null)
   const aiRunRef = useRef<AIRunState | null>(null)
   const readerSurfaceRef = useRef<HTMLDivElement | null>(null)
-  const pendingReaderViewportResetRef = useRef(false)
   const panStateRef = useRef<PanState | null>(null)
   const suppressSelectionRef = useRef(false)
+  const { requestReaderViewportReset, resetReaderViewportAfterRender } =
+    useReaderViewportReset(readerSurfaceRef)
 
   const currentPageAnnotations = useMemo(
     () => annotations.filter((item) => item.pageNumber === pageNumber),
@@ -379,34 +381,6 @@ function App(): JSX.Element {
       items.map((item) => (item.id === operationId ? { ...item, status: 'reverted' } : item))
     )
     setStatus('已撤销 AI 创建的批注')
-  }
-
-  const resetReaderViewport = (): void => {
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        const surface = readerSurfaceRef.current
-
-        if (!surface) {
-          return
-        }
-
-        surface.scrollLeft = Math.max(0, (surface.scrollWidth - surface.clientWidth) / 2)
-        surface.scrollTop = 0
-      })
-    })
-  }
-
-  const requestReaderViewportReset = (): void => {
-    pendingReaderViewportResetRef.current = true
-  }
-
-  const resetReaderViewportAfterRender = (): void => {
-    if (!pendingReaderViewportResetRef.current) {
-      return
-    }
-
-    pendingReaderViewportResetRef.current = false
-    resetReaderViewport()
   }
 
   const refreshAIConversations = async (documentId: string): Promise<void> => {
