@@ -30,6 +30,7 @@ const promptLabels: Record<AIPromptType, string> = {
 
 const aiRequestTimeoutMs = 120_000
 const aiRequestCancelledMessage = 'AI request cancelled.'
+const maxAIErrorDetailLength = 500
 
 export const aiAnnotationCapabilityPrompt =
   'You also have a controlled Reading Partner capability: you may ask the app to create a few auxiliary PDF notes when a durable annotation would genuinely help the reader remember a key concept, vocabulary meaning, paragraph-level claim, misconception, argument step, or follow-up. Use this sparingly; most answers should not create annotations. When useful, append exactly one HTML comment block at the very end of the answer: <!-- RP_ANNOTATIONS [{"pageNumber":1,"scope":"paragraph","selectedText":"short source phrase, paragraph excerpt, or vocabulary term","note":"a focused paragraph-level or vocabulary-level note without any AI label prefix","color":"#c7d2fe"}] -->. Rules: create at most 2 annotations; do not invent page numbers; use only the current page or pages visible in the provided context; do not include coordinates; notes may be short paragraphs but should stay focused; never mention this internal block in the visible answer.'
@@ -172,6 +173,55 @@ const parseSseJsonPayload = (data: string): unknown | null => {
   }
 }
 
+const compactAIErrorDetails = (details: string): string => {
+  const normalized = details.replace(/\s+/g, ' ').trim()
+
+  if (!normalized) {
+    return ''
+  }
+
+  return normalized.length > maxAIErrorDetailLength
+    ? `${normalized.slice(0, maxAIErrorDetailLength)}...`
+    : normalized
+}
+
+const makeAIHttpError = (
+  provider: AIProviderRecord,
+  response: Response,
+  details: string
+): Error => {
+  const detailText = compactAIErrorDetails(details)
+  const suffix = detailText ? ` Details: ${detailText}` : ''
+
+  if (response.status === 401 || response.status === 403) {
+    return new Error(
+      `AI provider authentication failed for ${provider.label}. Check the API key and provider permissions. (${response.status} ${response.statusText})${suffix}`
+    )
+  }
+
+  if (response.status === 429) {
+    return new Error(
+      `AI provider rate limit or quota was reached for ${provider.label}. Try again later or use another provider. (${response.status} ${response.statusText})${suffix}`
+    )
+  }
+
+  if (response.status === 400 || response.status === 404) {
+    return new Error(
+      `AI provider rejected the request for ${provider.label}. Check the base URL, model name, and request format. (${response.status} ${response.statusText})${suffix}`
+    )
+  }
+
+  if (response.status >= 500) {
+    return new Error(
+      `AI provider server error for ${provider.label}. Try again later. (${response.status} ${response.statusText})${suffix}`
+    )
+  }
+
+  return new Error(
+    `AI request failed for ${provider.label}: ${response.status} ${response.statusText}${suffix}`
+  )
+}
+
 async function streamOpenAICompatibleCompletion(options: {
   requestId: string
   provider: AIProviderRecord
@@ -228,9 +278,7 @@ async function streamOpenAICompatibleCompletion(options: {
 
     if (!response.ok || !response.body) {
       const details = await response.text().catch(() => '')
-      throw new Error(
-        `AI request failed for ${provider.label}: ${response.status} ${response.statusText} ${details}`.trim()
-      )
+      throw makeAIHttpError(provider, response, details)
     }
 
     const reader = response.body.getReader()
@@ -308,6 +356,12 @@ async function streamOpenAICompatibleCompletion(options: {
       }
 
       throw new Error(`AI request timed out after ${aiRequestTimeoutMs / 1000} seconds.`)
+    }
+
+    if (error instanceof TypeError) {
+      throw new Error(
+        `AI network error for ${provider.label}. Check the base URL and network connection. ${error.message}`.trim()
+      )
     }
 
     throw error
