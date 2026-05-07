@@ -51,13 +51,12 @@ import { SettingsPanel } from './components/SettingsPanel'
 import { VocabularyPanel } from './components/VocabularyPanel'
 import { WindowTitlebar } from './components/WindowTitlebar'
 import { makeDefinitionFromDictionary } from './vocabularyUtils'
-import {
-  buildTextLayerSearchIndex,
-  findSearchMatch,
-  rectsFromTextLayerMatch
-} from './pdfSearchHighlight'
 import { PanState, useReaderPan } from './hooks/useReaderPan'
 import { useReaderShortcuts } from './hooks/useReaderShortcuts'
+import {
+  ActiveSearchTarget,
+  useSearchHighlightLocator
+} from './hooks/useSearchHighlightLocator'
 
 type PanelTab = InspectorTab
 type SelectionState = {
@@ -65,12 +64,6 @@ type SelectionState = {
   x: number
   y: number
   rects: AnnotationRect[]
-}
-
-type ActiveSearchTarget = {
-  nonce: number
-  query: string
-  result: DocumentSearchResult
 }
 
 type AnnotationUndoAction =
@@ -237,6 +230,14 @@ function App(): JSX.Element {
   }, [readerName])
 
   useReaderPan(panStateRef, readerSurfaceRef, suppressSelectionRef, setIsPanning)
+  useSearchHighlightLocator({
+    activeSearchTarget,
+    pageNumber,
+    readerSurfaceRef,
+    scale,
+    onHighlightChange: setTemporarySearchHighlight,
+    onStatusChange: setStatus
+  })
 
   useEffect(() => {
     return () => {
@@ -252,63 +253,6 @@ function App(): JSX.Element {
     })
   }, [])
 
-  useEffect(() => {
-    if (!activeSearchTarget || activeSearchTarget.result.pageNumber !== pageNumber) {
-      return
-    }
-
-    let cancelled = false
-    let retryTimer: number | null = null
-
-    const locateSearchTarget = (attempt = 0): void => {
-      if (cancelled) {
-        return
-      }
-
-      const pageElement = readerSurfaceRef.current?.querySelector<HTMLElement>('.react-pdf__Page')
-      const textLayer = pageElement?.querySelector<HTMLElement>('.react-pdf__Page__textContent')
-
-      if (!pageElement || !textLayer || textLayer.textContent?.trim().length === 0) {
-        if (attempt < 14) {
-          retryTimer = window.setTimeout(() => locateSearchTarget(attempt + 1), 80)
-        }
-        return
-      }
-
-      const index = buildTextLayerSearchIndex(textLayer)
-      const match = findSearchMatch(index, activeSearchTarget.result, activeSearchTarget.query)
-      const rects = match ? rectsFromTextLayerMatch(index, match, pageElement, scale) : []
-
-      if (rects.length > 0) {
-        setTemporarySearchHighlight({
-          id: `search-${activeSearchTarget.result.id}-${activeSearchTarget.nonce}`,
-          pageNumber: activeSearchTarget.result.pageNumber,
-          text: activeSearchTarget.result.snippet,
-          rects
-        })
-        setStatus(`已定位第 ${activeSearchTarget.result.pageNumber} 页的搜索片段`)
-        return
-      }
-
-      if (attempt < 14) {
-        retryTimer = window.setTimeout(() => locateSearchTarget(attempt + 1), 80)
-      } else {
-        setTemporarySearchHighlight(null)
-        setStatus(`已跳转到第 ${activeSearchTarget.result.pageNumber} 页，但未能自动定位文字坐标`)
-      }
-    }
-
-    setTemporarySearchHighlight(null)
-    retryTimer = window.setTimeout(() => locateSearchTarget(), 0)
-
-    return () => {
-      cancelled = true
-
-      if (retryTimer !== null) {
-        window.clearTimeout(retryTimer)
-      }
-    }
-  }, [activeSearchTarget, pageNumber, scale])
 
   const refreshLibrary = async (): Promise<void> => {
     const list = await window.readingPartner.listDocuments()
