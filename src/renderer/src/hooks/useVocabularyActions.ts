@@ -1,19 +1,27 @@
 import type { Dispatch, SetStateAction } from 'react'
 import type {
+  AnnotationRecord,
   DictionaryEntryRecord,
   DocumentRecord,
   VocabularyRecord
 } from '../../../shared/types'
+import type { AnnotationRect } from '../annotationGeometry'
 import type { InspectorTab } from '../components/InspectorTabBar'
 import { makeDefinitionFromDictionary } from '../vocabularyUtils'
+import type { AnnotationUndoAction } from './useAnnotationUndo'
 
 type UseVocabularyActionsParams = {
   activeDocument: DocumentRecord | null
   pageNumber: number
+  readerName: string
+  selectedAnnotationColor: string
+  selectionRects: AnnotationRect[]
   selectionText: string | null
   vocabulary: VocabularyRecord[]
+  pushAnnotationUndo: (action: AnnotationUndoAction) => void
   refreshDictionarySources: () => Promise<void>
   setActiveTab: Dispatch<SetStateAction<InspectorTab>>
+  setAnnotations: Dispatch<SetStateAction<AnnotationRecord[]>>
   setSelection: (selection: null) => void
   setStatus: Dispatch<SetStateAction<string>>
   setVocabulary: Dispatch<SetStateAction<VocabularyRecord[]>>
@@ -22,10 +30,15 @@ type UseVocabularyActionsParams = {
 export const useVocabularyActions = ({
   activeDocument,
   pageNumber,
+  readerName,
+  selectedAnnotationColor,
+  selectionRects,
   selectionText,
   vocabulary,
+  pushAnnotationUndo,
   refreshDictionarySources,
   setActiveTab,
+  setAnnotations,
   setSelection,
   setStatus,
   setVocabulary
@@ -53,9 +66,37 @@ export const useVocabularyActions = ({
       })
 
       setVocabulary((items) => [created, ...items])
+      try {
+        const annotation = await window.readingPartner.createAnnotation({
+          documentId: activeDocument.id,
+          type: 'note',
+          pageNumber,
+          selectedText: selectionText,
+          color: selectedAnnotationColor,
+          note: `生词：${word}\n\n释义：${definition}`,
+          rectsJson: selectionRects.length ? JSON.stringify(selectionRects) : null,
+          authorName: readerName.trim() || 'Reader'
+        })
+
+        setAnnotations((items) => [...items, annotation])
+        pushAnnotationUndo({ kind: 'create', annotation })
+      } catch (error) {
+        console.error('Failed to create vocabulary annotation', error)
+        setSelection(null)
+        setActiveTab('vocab')
+        setStatus(
+          `已加入词汇本，但创建生词批注失败：${error instanceof Error ? error.message : String(error)}`
+        )
+        return
+      }
+
       setSelection(null)
       setActiveTab('vocab')
-      setStatus(lookup.entry ? '已用本地词典释义加入词汇本' : '已加入词汇本，未命中本地词典')
+      setStatus(
+        lookup.entry
+          ? '已用本地词典释义加入词汇本，并创建生词批注'
+          : '已加入词汇本并创建生词批注，未命中本地词典'
+      )
     } catch (error) {
       setStatus(`加入词汇本失败：${error instanceof Error ? error.message : String(error)}`)
     }

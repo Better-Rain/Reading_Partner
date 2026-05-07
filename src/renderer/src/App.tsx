@@ -295,10 +295,15 @@ function App(): JSX.Element {
   } = useVocabularyActions({
     activeDocument,
     pageNumber,
+    readerName,
+    selectedAnnotationColor,
+    selectionRects: selection?.rects ?? [],
     selectionText: selection?.text ?? null,
     vocabulary,
+    pushAnnotationUndo,
     refreshDictionarySources,
     setActiveTab,
+    setAnnotations,
     setSelection,
     setStatus,
     setVocabulary
