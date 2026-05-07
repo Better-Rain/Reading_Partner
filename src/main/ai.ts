@@ -29,6 +29,7 @@ const promptLabels: Record<AIPromptType, string> = {
 }
 
 const aiRequestTimeoutMs = 120_000
+const aiRequestCancelledMessage = 'AI request cancelled.'
 
 export const aiAnnotationCapabilityPrompt =
   'You also have a controlled Reading Partner capability: you may ask the app to create a few auxiliary PDF notes when a durable annotation would genuinely help the reader remember a key concept, vocabulary meaning, paragraph-level claim, misconception, argument step, or follow-up. Use this sparingly; most answers should not create annotations. When useful, append exactly one HTML comment block at the very end of the answer: <!-- RP_ANNOTATIONS [{"pageNumber":1,"scope":"paragraph","selectedText":"short source phrase, paragraph excerpt, or vocabulary term","note":"a focused paragraph-level or vocabulary-level note without any AI label prefix","color":"#c7d2fe"}] -->. Rules: create at most 2 annotations; do not invent page numbers; use only the current page or pages visible in the provided context; do not include coordinates; notes may be short paragraphs but should stay focused; never mention this internal block in the visible answer.'
@@ -177,15 +178,30 @@ async function streamOpenAICompatibleCompletion(options: {
   apiKey: string
   messages: ChatMessage[]
   temperature?: number
+  signal?: AbortSignal
   onEvent: (event: AIStreamEvent) => void
   saveArtifact: (output: string) => AIArtifactRecord
 }): Promise<void> {
-  const { requestId, provider, apiKey, messages, onEvent, saveArtifact } = options
+  const { requestId, provider, apiKey, messages, onEvent, saveArtifact, signal } = options
   const model = provider.defaultModel
   let output = ''
   let reasoningOutput = ''
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), aiRequestTimeoutMs)
+  let abortReason: 'timeout' | 'cancelled' | null = null
+  const timeout = setTimeout(() => {
+    abortReason = 'timeout'
+    controller.abort()
+  }, aiRequestTimeoutMs)
+  const handleExternalAbort = (): void => {
+    abortReason = 'cancelled'
+    controller.abort()
+  }
+
+  if (signal?.aborted) {
+    handleExternalAbort()
+  } else {
+    signal?.addEventListener('abort', handleExternalAbort, { once: true })
+  }
 
   onEvent({
     requestId,
@@ -282,11 +298,21 @@ async function streamOpenAICompatibleCompletion(options: {
     })
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
+      if (abortReason === 'cancelled') {
+        onEvent({
+          requestId,
+          type: 'cancelled',
+          message: aiRequestCancelledMessage
+        })
+        return
+      }
+
       throw new Error(`AI request timed out after ${aiRequestTimeoutMs / 1000} seconds.`)
     }
 
     throw error
   } finally {
+    signal?.removeEventListener('abort', handleExternalAbort)
     clearTimeout(timeout)
   }
 }
@@ -295,15 +321,17 @@ export async function runOpenAICompatibleCompletion({
   input,
   provider,
   apiKey,
+  signal,
   onEvent,
   saveArtifact
-}: AICompletionOptions): Promise<void> {
+}: AICompletionOptions & { signal?: AbortSignal }): Promise<void> {
   await streamOpenAICompatibleCompletion({
     requestId: input.requestId,
     provider,
     apiKey,
     messages: buildMessages(input),
     temperature: 0.2,
+    signal,
     onEvent,
     saveArtifact
   })
@@ -314,6 +342,7 @@ export async function runOpenAICompatibleChatCompletion(options: {
   provider: AIProviderRecord
   apiKey: string
   messages: ChatMessage[]
+  signal?: AbortSignal
   onEvent: (event: AIStreamEvent) => void
   saveArtifact: (output: string) => AIArtifactRecord
 }): Promise<void> {

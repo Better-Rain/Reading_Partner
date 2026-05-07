@@ -30,6 +30,7 @@ let mainWindow: BrowserWindow | null = null
 let database: ReadingPartnerDatabase
 let keyStore: KeyStore
 const starDictSources = new Map<string, StarDictSource>()
+const aiRequestControllers = new Map<string, AbortController>()
 
 const toArrayBuffer = (buffer: Buffer): ArrayBuffer =>
   buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer
@@ -45,6 +46,19 @@ const stripAIReasoningDirectives = (value: string): string =>
 
 const stripAIControlDirectives = (value: string): string =>
   stripAIAnnotationDirectives(stripAIReasoningDirectives(value))
+
+const createAIRequestController = (requestId: string): AbortController => {
+  aiRequestControllers.get(requestId)?.abort()
+  const controller = new AbortController()
+  aiRequestControllers.set(requestId, controller)
+  return controller
+}
+
+const releaseAIRequestController = (requestId: string, controller: AbortController): void => {
+  if (aiRequestControllers.get(requestId) === controller) {
+    aiRequestControllers.delete(requestId)
+  }
+}
 
 const createWindow = (): void => {
   mainWindow = new BrowserWindow({
@@ -378,9 +392,21 @@ const registerIpc = (): void => {
     database.listAIChatMessages(conversationId)
   )
 
+  ipcMain.handle('ai:cancelRequest', (_event, requestId: string) => {
+    const controller = aiRequestControllers.get(requestId)
+
+    if (!controller) {
+      return false
+    }
+
+    controller.abort()
+    return true
+  })
+
   ipcMain.handle('ai:runAction', async (event, input: RunAIActionInput) => {
     const provider = database.getAIProvider(input.providerId)
     const apiKey = keyStore.get(provider.apiKeyRef)
+    const controller = createAIRequestController(input.requestId)
     const sendEvent = (payload: AIStreamEvent): void => {
       event.sender.send('ai:streamEvent', payload)
     }
@@ -390,6 +416,7 @@ const registerIpc = (): void => {
         input,
         provider,
         apiKey,
+        signal: controller.signal,
         onEvent: sendEvent,
         saveArtifact: (output) =>
           database.createAIArtifact({
@@ -408,12 +435,15 @@ const registerIpc = (): void => {
         type: 'error',
         message: error instanceof Error ? error.message : String(error)
       })
+    } finally {
+      releaseAIRequestController(input.requestId, controller)
     }
   })
 
   ipcMain.handle('ai:askDocument', async (event, input: AskDocumentQuestionInput) => {
     const provider = database.getAIProvider(input.providerId)
     const apiKey = keyStore.get(provider.apiKeyRef)
+    const controller = createAIRequestController(input.requestId)
     const context = database.getRelevantDocumentChunks(
       input.documentId,
       input.question,
@@ -436,6 +466,7 @@ const registerIpc = (): void => {
         },
         provider,
         apiKey,
+        signal: controller.signal,
         onEvent: sendEvent,
         saveArtifact: (output) =>
           database.createAIArtifact({
@@ -454,6 +485,8 @@ const registerIpc = (): void => {
         type: 'error',
         message: error instanceof Error ? error.message : String(error)
       })
+    } finally {
+      releaseAIRequestController(input.requestId, controller)
     }
   })
 
@@ -523,6 +556,7 @@ const registerIpc = (): void => {
     const sendEvent = (payload: AIStreamEvent): void => {
       event.sender.send('ai:streamEvent', payload)
     }
+    const controller = createAIRequestController(input.requestId)
 
     try {
       await runOpenAICompatibleChatCompletion({
@@ -530,6 +564,7 @@ const registerIpc = (): void => {
         provider,
         apiKey,
         messages,
+        signal: controller.signal,
         onEvent: sendEvent,
         saveArtifact: (output) => {
           const artifact = database.createAIArtifact({
@@ -561,6 +596,8 @@ const registerIpc = (): void => {
         type: 'error',
         message: error instanceof Error ? error.message : String(error)
       })
+    } finally {
+      releaseAIRequestController(input.requestId, controller)
     }
   })
 }

@@ -60,6 +60,7 @@ const api: ReadingPartnerApi = {
   runAIAction: (input: RunAIActionInput) => ipcRenderer.invoke('ai:runAction', input),
   askDocumentQuestion: (input: AskDocumentQuestionInput) =>
     ipcRenderer.invoke('ai:askDocument', input),
+  cancelAIRequest: (requestId: string) => ipcRenderer.invoke('ai:cancelRequest', requestId),
   listAIConversations: (documentId: string) => ipcRenderer.invoke('ai:conversations', documentId),
   createAIConversation: (documentId: string, title?: string | null) =>
     ipcRenderer.invoke('ai:createConversation', documentId, title),

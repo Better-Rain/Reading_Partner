@@ -14,7 +14,7 @@ export type AIRunState = {
   model: string
   output: string
   reasoningOutput: string
-  status: 'idle' | 'running' | 'done' | 'error'
+  status: 'idle' | 'running' | 'done' | 'error' | 'cancelled'
   error: string | null
   source: 'selection' | 'vocabulary' | 'document_qa' | 'chat'
   conversationId?: string
@@ -47,6 +47,7 @@ export type AiPanelProps = {
   onChatDraftChange: (value: string) => void
   onChatTitleDraftChange: (value: string) => void
   onCloseConversation: () => void
+  onCancelRun: () => void
   onCreateConversation: () => void
   onKeepAIOperation: (operationId: string) => void
   onQuestionChange: (value: string) => void

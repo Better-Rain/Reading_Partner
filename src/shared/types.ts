@@ -293,6 +293,11 @@ export type AIStreamEvent =
       type: 'error'
       message: string
     }
+  | {
+      requestId: string
+      type: 'cancelled'
+      message?: string
+    }
 
 export type ReadingPartnerApi = {
   minimizeWindow: () => Promise<void>
@@ -328,6 +333,7 @@ export type ReadingPartnerApi = {
   listAIProviderKeyStatus: () => Promise<ProviderKeyStatus[]>
   runAIAction: (input: RunAIActionInput) => Promise<void>
   askDocumentQuestion: (input: AskDocumentQuestionInput) => Promise<void>
+  cancelAIRequest: (requestId: string) => Promise<boolean>
   listAIConversations: (documentId: string) => Promise<AIConversationRecord[]>
   createAIConversation: (
     documentId: string,

@@ -511,6 +511,16 @@ function App(): JSX.Element {
       return
     }
 
+    if (event.type === 'cancelled') {
+      setAiRun((current) =>
+        current && current.requestId === event.requestId
+          ? { ...current, status: 'cancelled', error: null }
+          : current
+      )
+      setStatus('已取消 AI 请求')
+      return
+    }
+
     const currentRun = aiRunRef.current
     const {
       displayOutput,
@@ -793,6 +803,22 @@ function App(): JSX.Element {
       promptType,
       selectedText: text
     })
+  }
+
+  const cancelCurrentAIRun = async (): Promise<void> => {
+    const currentRun = aiRunRef.current
+
+    if (!currentRun || currentRun.status !== 'running') {
+      return
+    }
+
+    await window.readingPartner.cancelAIRequest(currentRun.requestId)
+    setAiRun((current) =>
+      current && current.requestId === currentRun.requestId
+        ? { ...current, status: 'cancelled', error: null }
+        : current
+    )
+    setStatus('已取消 AI 请求')
   }
 
   const askDocumentQuestion = async (question: string): Promise<void> => {
@@ -1375,6 +1401,7 @@ function App(): JSX.Element {
             selection={selection?.text ?? null}
             activeConversationId={activeConversationId}
             onAskDocument={(question) => void askDocumentQuestion(question)}
+            onCancelRun={() => void cancelCurrentAIRun()}
             onChatDraftChange={setChatDraft}
             onChatTitleDraftChange={setChatTitleDraft}
             onCloseConversation={() => setIsChatDrawerOpen(false)}

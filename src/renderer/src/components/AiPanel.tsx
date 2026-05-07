@@ -102,6 +102,7 @@ export function AiPanel({
   onChatDraftChange,
   onChatTitleDraftChange,
   onCloseConversation,
+  onCancelRun,
   onCreateConversation,
   onKeepAIOperation,
   onQuestionChange,
@@ -269,6 +270,12 @@ export function AiPanel({
             <Send size={16} />
             发送
           </button>
+          {activeChatRunning && (
+            <button className="text-button" type="button" onClick={onCancelRun}>
+              <X size={14} />
+              取消
+            </button>
+          )}
         </form>
       </div>
     )
@@ -355,6 +362,12 @@ export function AiPanel({
           <div className="ai-output-heading">
             <strong>{promptLabels[aiRun.promptType]}</strong>
             <span>{aiRun.status === 'running' ? '生成中' : aiRun.status}</span>
+            {aiRun.status === 'running' && (
+              <button className="text-button" type="button" onClick={onCancelRun}>
+                <X size={14} />
+                取消
+              </button>
+            )}
           </div>
           {aiRun.error ? (
             <p className="error-text">{aiRun.error}</p>
