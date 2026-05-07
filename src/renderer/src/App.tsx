@@ -76,6 +76,8 @@ import {
   findSearchMatch,
   rectsFromTextLayerMatch
 } from './pdfSearchHighlight'
+import { PanState, useReaderPan } from './hooks/useReaderPan'
+import { useReaderShortcuts } from './hooks/useReaderShortcuts'
 
 type PanelTab = 'notes' | 'search' | 'ai' | 'vocab' | 'settings'
 type SelectionState = {
@@ -149,25 +151,10 @@ const getStoredReaderName = (): string => {
   return value || '本机读者'
 }
 
-const isEditableTarget = (target: EventTarget | null): boolean => {
-  if (!(target instanceof HTMLElement)) {
-    return false
-  }
-
-  return Boolean(target.closest('input, textarea, select, [contenteditable="true"]'))
-}
-
 const toPdfBlobUrl = (data: ArrayBuffer | Uint8Array): string => {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data)
   const stableCopy = bytes.slice()
   return URL.createObjectURL(new Blob([stableCopy], { type: 'application/pdf' }))
-}
-
-type PanState = {
-  startX: number
-  startY: number
-  scrollLeft: number
-  scrollTop: number
 }
 
 function App(): JSX.Element {
@@ -277,49 +264,7 @@ function App(): JSX.Element {
     window.localStorage.setItem('reading-partner.reader-name', readerName.trim() || '本机读者')
   }, [readerName])
 
-  useEffect(() => {
-    const handleWindowMouseMove = (event: MouseEvent): void => {
-      const panState = panStateRef.current
-      const surface = readerSurfaceRef.current
-
-      if (!panState || !surface) {
-        return
-      }
-
-      event.preventDefault()
-      const deltaX = event.clientX - panState.startX
-      const deltaY = event.clientY - panState.startY
-
-      if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
-        suppressSelectionRef.current = true
-      }
-
-      surface.scrollLeft = panState.scrollLeft - deltaX
-      surface.scrollTop = panState.scrollTop - deltaY
-    }
-
-    const handleWindowMouseUp = (event: MouseEvent): void => {
-      if (!panStateRef.current) {
-        return
-      }
-
-      event.preventDefault()
-      panStateRef.current = null
-      setIsPanning(false)
-
-      window.setTimeout(() => {
-        suppressSelectionRef.current = false
-      }, 0)
-    }
-
-    window.addEventListener('mousemove', handleWindowMouseMove)
-    window.addEventListener('mouseup', handleWindowMouseUp)
-
-    return () => {
-      window.removeEventListener('mousemove', handleWindowMouseMove)
-      window.removeEventListener('mouseup', handleWindowMouseUp)
-    }
-  }, [])
+  useReaderPan(panStateRef, readerSurfaceRef, suppressSelectionRef, setIsPanning)
 
   useEffect(() => {
     return () => {
@@ -945,52 +890,14 @@ function App(): JSX.Element {
     setStatus(type === 'bookmark' ? '已添加书签' : '已保存批注')
   }
 
-  useEffect(() => {
-    const handleShortcut = (event: KeyboardEvent): void => {
-      const key = event.key.toLowerCase()
-
-      if (
-        (event.ctrlKey || event.metaKey) &&
-        !event.altKey &&
-        !event.shiftKey &&
-        key === 'z' &&
-        !isEditableTarget(event.target)
-      ) {
-        event.preventDefault()
-        void undoLastAnnotationAction()
-        return
-      }
-
-      if (event.ctrlKey || event.metaKey || event.altKey || isEditableTarget(event.target)) {
-        return
-      }
-
-      if (key === 'd') {
-        event.preventDefault()
-        setIsPanMode((value) => !value)
-        return
-      }
-
-      if (!activeDocument || !selection) {
-        return
-      }
-
-      if (key === 'h') {
-        event.preventDefault()
-        void createAnnotation('highlight')
-      }
-
-      if (key === 'n') {
-        event.preventDefault()
-        setIsSelectionNoteEditorOpen(true)
-      }
-    }
-
-    window.addEventListener('keydown', handleShortcut)
-    return () => {
-      window.removeEventListener('keydown', handleShortcut)
-    }
-  }, [activeDocument, annotationUndoStack, selection, selectedAnnotationColor, readerName])
+  useReaderShortcuts({
+    hasDocument: Boolean(activeDocument),
+    hasSelection: Boolean(selection),
+    onCreateHighlight: () => void createAnnotation('highlight'),
+    onOpenNoteEditor: () => setIsSelectionNoteEditorOpen(true),
+    onTogglePanMode: () => setIsPanMode((value) => !value),
+    onUndoAnnotation: () => void undoLastAnnotationAction()
+  })
 
   const runAIAction = async (promptType: AIPromptType, text = selection?.text): Promise<void> => {
     if (!activeDocument || !text) {
