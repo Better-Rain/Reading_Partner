@@ -48,7 +48,7 @@ npm run build
 
 | 编号 | 风险 | 当前状态 | 已处理内容 | 剩余建议 |
 | --- | --- | --- | --- | --- |
-| R1 | `src/renderer/src/App.tsx` 过大，前端职责集中 | 大幅缓解，继续优化 | 已拆出 AI 面板、笔记面板、搜索/设置/词汇面板、Markdown 渲染、批注浮层、PDF 搜索高亮、阅读器工具栏、阅读器表面、窗口栏、文档库、选区工具条、快捷键/平移/搜索定位/视口重置 hooks、PDF 文本索引 hook、批注撤销 hook。`App.tsx` 已降至约 1239 行。 | 继续拆 AI 会话处理、批注 CRUD、词汇本操作等业务 hooks。 |
+| R1 | `src/renderer/src/App.tsx` 过大，前端职责集中 | 大幅缓解，继续优化 | 已拆出 AI 面板、笔记面板、搜索/设置/词汇面板、Markdown 渲染、批注浮层、PDF 搜索高亮、阅读器工具栏、阅读器表面、窗口栏、文档库、选区工具条、快捷键/平移/搜索定位/视口重置 hooks、PDF 文本索引 hook、批注撤销 hook、AI 操作记录 hook。`App.tsx` 已降至约 1183 行。 | 继续拆 AI 会话处理、批注 CRUD、词汇本操作等业务 hooks。 |
 | R2 | 数据库每次写操作同步整库落盘，可能阻塞主进程 | 大幅缓解，继续优化 | `ReadingPartnerDatabase.persist()` 已改为合并写入；落盘改为异步串行写入临时文件后原子替换；退出前会等待 `flush()`，并补充数据库尚未初始化时的退出保护。 | `sql.js` 仍需要同步 `db.export()` 生成整库快照；后续可评估增量持久化、worker 化导出或真正的 SQLite 文件型驱动。 |
 | R3 | PDF 文本抽取在主进程中顺序解析，大 PDF 可能卡顿 | 大幅缓解 | `extractPdfText()` 已在逐页处理间让出事件循环；文本索引已增加 `start/progress/done/cancelled/error` 事件、renderer 进度状态和工具栏取消按钮，主进程可按文档取消正在运行的索引任务；renderer 索引进度/取消流程已迁入 `useDocumentTextIndex()`。 | 仍会一次性读取 PDF 并在主进程解析；后续建议 worker/独立进程化和更完整的任务队列。 |
 | R4 | AI 流式请求缺少显式超时、取消和 SSE 容错 | 已处理，后续可打磨 | 已加入 120 秒超时、`AbortController`、更宽容的 SSE `data:` 解析和 JSON 解析保护；renderer 已提供运行中取消按钮，主进程可按 `requestId` abort 正在运行的 AI 请求；HTTP/网络错误已按鉴权、限流、请求/模型、服务端和网络连接分类。 | 后续可在 UI 中进一步用视觉状态区分不同错误类型。 |
@@ -73,6 +73,7 @@ npm run build
 - `Improve database persistence writes`：数据库落盘改为异步串行临时文件写入后原子替换，并在退出前等待 flush。
 - `Extract document text index hook`：迁出 renderer 文本索引事件、进度和取消状态管理。
 - `Extract annotation undo hook`：迁出批注撤销栈、撤销恢复和重置逻辑。
+- `Extract AI operations hook`：迁出 AI 创建批注的操作记录、保留、撤销和辅助批注创建逻辑。
 
 ## 5. 后续优化优先级
 

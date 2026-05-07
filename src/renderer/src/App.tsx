@@ -23,11 +23,9 @@ import {
 } from './aiText'
 import {
   aiDefaultAnnotationColor,
-  extractAIAssistedAnnotations,
-  normalizeAIAssistedNote,
-  type AIAssistedAnnotation
+  extractAIAssistedAnnotations
 } from './aiAnnotations'
-import { AIOperationRecord, AIRunState, promptLabels } from './aiPanelTypes'
+import { AIRunState, promptLabels } from './aiPanelTypes'
 import { AnnotationRect, normalizeAnnotationRects } from './annotationGeometry'
 import { AiPanel } from './components/AiPanel'
 import {
@@ -62,6 +60,7 @@ import {
 import { useReaderViewportReset } from './hooks/useReaderViewportReset'
 import { useDocumentTextIndex } from './hooks/useDocumentTextIndex'
 import { useAnnotationUndo } from './hooks/useAnnotationUndo'
+import { useAIOperations } from './hooks/useAIOperations'
 import { getStoredReaderName, toPdfBlobUrl } from './readerLocalState'
 
 type PanelTab = InspectorTab
@@ -128,7 +127,6 @@ function App(): JSX.Element {
   const [chatDraft, setChatDraft] = useState('')
   const [chatTitleDraft, setChatTitleDraft] = useState('')
   const [readerName, setReaderName] = useState(getStoredReaderName)
-  const [aiOperations, setAiOperations] = useState<AIOperationRecord[]>([])
   const [annotationFilters, setAnnotationFilters] =
     useState<AnnotationFilterState>(defaultAnnotationFilters)
   const [status, setStatus] = useState('打开一本 PDF 开始阅读')
@@ -267,6 +265,17 @@ function App(): JSX.Element {
     setAnnotations,
     setStatus
   })
+  const {
+    aiOperations,
+    createAIAssistedAnnotations,
+    registerAIOperation,
+    keepAIOperation,
+    revertAIOperation,
+    resetAIOperations
+  } = useAIOperations({
+    setAnnotations,
+    setStatus
+  })
 
   const clearSearch = (): void => {
     setSearchQuery('')
@@ -274,80 +283,6 @@ function App(): JSX.Element {
     setIsSearching(false)
     setActiveSearchTarget(null)
     setTemporarySearchHighlight(null)
-  }
-
-  const createAIAssistedAnnotations = async (
-    documentId: string,
-    drafts: AIAssistedAnnotation[],
-    model: string
-  ): Promise<AnnotationRecord[]> => {
-    if (drafts.length === 0) {
-      return []
-    }
-
-    const created = await Promise.all(
-      drafts.map((draft) =>
-        window.readingPartner.createAnnotation({
-          documentId,
-          type: 'note',
-          pageNumber: draft.pageNumber,
-          selectedText: draft.selectedText,
-          color: draft.color,
-          note: `模型：${model}\n\n${normalizeAIAssistedNote(draft.note)}`,
-          authorName: 'AI'
-        })
-      )
-    )
-
-    setAnnotations((items) => [...items, ...created])
-    return created
-  }
-
-  const registerAIOperation = (
-    requestId: string,
-    annotationsForOperation: AnnotationRecord[],
-    conversationId?: string
-  ): void => {
-    if (annotationsForOperation.length === 0) {
-      return
-    }
-
-    setAiOperations((items) => [
-      {
-        id: crypto.randomUUID(),
-        requestId,
-        createdAt: new Date().toISOString(),
-        annotations: annotationsForOperation,
-        status: 'pending',
-        ...(conversationId ? { conversationId } : {})
-      },
-      ...items
-    ])
-  }
-
-  const keepAIOperation = (operationId: string): void => {
-    setAiOperations((items) =>
-      items.map((item) => (item.id === operationId ? { ...item, status: 'kept' } : item))
-    )
-    setStatus('已保留 AI 创建的批注')
-  }
-
-  const revertAIOperation = async (operationId: string): Promise<void> => {
-    const operation = aiOperations.find((item) => item.id === operationId)
-
-    if (!operation || operation.status === 'reverted') {
-      return
-    }
-
-    await Promise.all(
-      operation.annotations.map((annotation) => window.readingPartner.deleteAnnotation(annotation.id))
-    )
-    const deletedIds = new Set(operation.annotations.map((annotation) => annotation.id))
-    setAnnotations((items) => items.filter((item) => !deletedIds.has(item.id)))
-    setAiOperations((items) =>
-      items.map((item) => (item.id === operationId ? { ...item, status: 'reverted' } : item))
-    )
-    setStatus('已撤销 AI 创建的批注')
   }
 
   const refreshAIConversations = async (documentId: string): Promise<void> => {
@@ -599,7 +534,7 @@ function App(): JSX.Element {
     setSelectionNoteDraft('')
     setIsSelectionNoteEditorOpen(false)
     resetAnnotationUndoStack()
-    setAiOperations([])
+    resetAIOperations()
     clearSearch()
     setQaQuestion('')
     setChatDraft('')
@@ -633,7 +568,7 @@ function App(): JSX.Element {
     setPageNumber(1)
     setSelection(null)
     resetAnnotationUndoStack()
-    setAiOperations([])
+    resetAIOperations()
     clearSearch()
     setQaQuestion('')
     setChatDraft('')
