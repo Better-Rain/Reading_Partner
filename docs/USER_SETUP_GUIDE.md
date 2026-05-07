@@ -9,7 +9,7 @@ The project is configured to skip optional native packages because `canvas` can 
 In PowerShell:
 
 ```powershell
-cd "C:\Code\Vscode Projects\Reading_Partner"
+cd "D:\programme\Vscode Projects\Reading_Partner"
 $env:ELECTRON_MIRROR='https://npmmirror.com/mirrors/electron/'
 npm install
 ```

@@ -338,6 +338,9 @@ const createSearchSnippet = (text: string, terms: string[]): string => {
 }
 
 export class ReadingPartnerDatabase {
+  private persistTimer: ReturnType<typeof setTimeout> | null = null
+  private dirty = false
+
   private constructor(
     private readonly db: SqlDatabase,
     private readonly databasePath: string
@@ -357,7 +360,6 @@ export class ReadingPartnerDatabase {
     store.db.run('pragma foreign_keys = ON')
     store.migrate()
     store.seedProviders()
-    store.persist()
 
     return store
   }
@@ -1491,7 +1493,9 @@ export class ReadingPartnerDatabase {
         created_at text not null
       );
     `)
+
     this.ensureColumn('annotations', 'author_name', "text not null default 'Reader'")
+    this.persist()
   }
 
   private seedProviders(): void {
@@ -1541,8 +1545,42 @@ export class ReadingPartnerDatabase {
     }
   }
 
+  flush(): void {
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer)
+      this.persistTimer = null
+    }
+
+    if (!this.dirty) {
+      return
+    }
+
+    this.writeSnapshot()
+  }
+
   private persist(): void {
+    this.dirty = true
+
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer)
+    }
+
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null
+
+      try {
+        this.writeSnapshot()
+      } catch (error) {
+        console.error('Failed to persist Reading Partner database', error)
+      }
+    }, 250)
+
+    this.persistTimer.unref?.()
+  }
+
+  private writeSnapshot(): void {
     writeFileSync(this.databasePath, this.db.export())
+    this.dirty = false
   }
 
   private get<T extends Record<string, unknown>>(sql: string, params: SqlValue[] = []): T | undefined {

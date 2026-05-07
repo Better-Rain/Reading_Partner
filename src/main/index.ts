@@ -307,6 +307,7 @@ const registerIpc = (): void => {
     if (/\.(ifo|idx|dict)$/i.test(sourcePath)) {
       const ifoPath = resolveStarDictIfoPath(sourcePath)
       const source = new StarDictSource(ifoPath)
+      starDictSources.get(ifoPath)?.close()
       starDictSources.set(ifoPath, source)
       database.registerDictionarySource({
         type: 'stardict',
@@ -597,4 +598,14 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+app.on('before-quit', () => {
+  database.flush()
+
+  for (const source of starDictSources.values()) {
+    source.close()
+  }
+
+  starDictSources.clear()
 })

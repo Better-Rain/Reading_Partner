@@ -28,6 +28,8 @@ const promptLabels: Record<AIPromptType, string> = {
   chat_document: 'chat document'
 }
 
+const aiRequestTimeoutMs = 120_000
+
 export const aiAnnotationCapabilityPrompt =
   'You also have a controlled Reading Partner capability: you may ask the app to create a few auxiliary PDF notes when a durable annotation would genuinely help the reader remember a key concept, vocabulary meaning, paragraph-level claim, misconception, argument step, or follow-up. Use this sparingly; most answers should not create annotations. When useful, append exactly one HTML comment block at the very end of the answer: <!-- RP_ANNOTATIONS [{"pageNumber":1,"scope":"paragraph","selectedText":"short source phrase, paragraph excerpt, or vocabulary term","note":"a focused paragraph-level or vocabulary-level note without any AI label prefix","color":"#c7d2fe"}] -->. Rules: create at most 2 annotations; do not invent page numbers; use only the current page or pages visible in the provided context; do not include coordinates; notes may be short paragraphs but should stay focused; never mention this internal block in the visible answer.'
 
@@ -161,6 +163,14 @@ const parseSseLine = (line: string): string | null => {
   return trimmed.slice(5).trim()
 }
 
+const parseSseJsonPayload = (data: string): unknown | null => {
+  try {
+    return JSON.parse(data)
+  } catch {
+    return null
+  }
+}
+
 async function streamOpenAICompatibleCompletion(options: {
   requestId: string
   provider: AIProviderRecord
@@ -174,6 +184,8 @@ async function streamOpenAICompatibleCompletion(options: {
   const model = provider.defaultModel
   let output = ''
   let reasoningOutput = ''
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), aiRequestTimeoutMs)
 
   onEvent({
     requestId,
@@ -182,84 +194,101 @@ async function streamOpenAICompatibleCompletion(options: {
     model
   })
 
-  const response = await fetch(`${normalizeBaseUrl(provider.baseUrl)}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      stream: true,
-      temperature: options.temperature ?? 0.2
+  try {
+    const response = await fetch(`${normalizeBaseUrl(provider.baseUrl)}/chat/completions`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        stream: true,
+        temperature: options.temperature ?? 0.2
+      })
     })
-  })
 
-  if (!response.ok || !response.body) {
-    const details = await response.text().catch(() => '')
-    throw new Error(
-      `AI request failed for ${provider.label}: ${response.status} ${response.statusText} ${details}`.trim()
-    )
-  }
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  while (true) {
-    const { done, value } = await reader.read()
-
-    if (done) {
-      break
+    if (!response.ok || !response.body) {
+      const details = await response.text().catch(() => '')
+      throw new Error(
+        `AI request failed for ${provider.label}: ${response.status} ${response.statusText} ${details}`.trim()
+      )
     }
 
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split(/\r?\n/)
-    buffer = lines.pop() ?? ''
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
 
-    for (const line of lines) {
-      const data = parseSseLine(line)
+    while (true) {
+      const { done, value } = await reader.read()
 
-      if (!data) {
-        continue
+      if (done) {
+        break
       }
 
-      if (data === '[DONE]') {
-        continue
-      }
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split(/\r?\n/)
+      buffer = lines.pop() ?? ''
 
-      const delta = extractDelta(JSON.parse(data))
+      for (const line of lines) {
+        const data = parseSseLine(line)
 
-      if (delta.reasoning) {
-        reasoningOutput += delta.reasoning
-        onEvent({
-          requestId,
-          type: 'delta',
-          text: delta.reasoning,
-          channel: 'reasoning'
-        })
-      }
+        if (!data) {
+          continue
+        }
 
-      if (delta.content) {
-        output += delta.content
-        onEvent({
-          requestId,
-          type: 'delta',
-          text: delta.content,
-          channel: 'content'
-        })
+        if (data === '[DONE]') {
+          continue
+        }
+
+        const parsed = parseSseJsonPayload(data)
+
+        if (!parsed) {
+          continue
+        }
+
+        const delta = extractDelta(parsed)
+
+        if (delta.reasoning) {
+          reasoningOutput += delta.reasoning
+          onEvent({
+            requestId,
+            type: 'delta',
+            text: delta.reasoning,
+            channel: 'reasoning'
+          })
+        }
+
+        if (delta.content) {
+          output += delta.content
+          onEvent({
+            requestId,
+            type: 'delta',
+            text: delta.content,
+            channel: 'content'
+          })
+        }
       }
     }
+
+    const artifact = saveArtifact(wrapReasoningOutput(reasoningOutput, output))
+
+    onEvent({
+      requestId,
+      type: 'done',
+      artifact
+    })
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`AI request timed out after ${aiRequestTimeoutMs / 1000} seconds.`)
+    }
+
+    throw error
+  } finally {
+    clearTimeout(timeout)
   }
-
-  const artifact = saveArtifact(wrapReasoningOutput(reasoningOutput, output))
-
-  onEvent({
-    requestId,
-    type: 'done',
-    artifact
-  })
 }
 
 export async function runOpenAICompatibleCompletion({

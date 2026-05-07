@@ -110,6 +110,8 @@ export class StarDictSource {
   private readonly idx: Buffer
   private readonly positions: Int32Array
   private readonly dictPath: string
+  private readonly dictFile: number
+  private closed = false
 
   constructor(ifoPath: string) {
     const basePath = makeBasePath(ifoPath)
@@ -121,17 +123,17 @@ export class StarDictSource {
     this.idx = readFileSync(`${basePath}.idx`)
     this.positions = buildEntryPositions(this.idx)
     this.dictPath = `${basePath}.dict`
+    this.dictFile = openSync(this.dictPath, 'r')
   }
 
   private makeRecord(entry: { word: string; offset: number; size: number }): DictionaryEntryRecord {
-    const file = openSync(this.dictPath, 'r')
     const buffer = Buffer.alloc(entry.size)
 
-    try {
-      readSync(file, buffer, 0, entry.size, entry.offset)
-    } finally {
-      closeSync(file)
+    if (this.closed) {
+      throw new Error(`StarDict source is closed: ${this.ifoPath}`)
     }
+
+    readSync(this.dictFile, buffer, 0, entry.size, entry.offset)
 
     const translation = buffer.toString('utf8').trim()
     const now = new Date().toISOString()
@@ -195,6 +197,15 @@ export class StarDictSource {
     }
 
     return results
+  }
+
+  close(): void {
+    if (this.closed) {
+      return
+    }
+
+    closeSync(this.dictFile)
+    this.closed = true
   }
 }
 

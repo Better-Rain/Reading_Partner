@@ -24,6 +24,7 @@ export type ExtractedPdfText = {
 
 const maxChunkLength = 1200
 const minChunkLength = 320
+const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
 const normalizeText = (value: string): string =>
   value
@@ -139,6 +140,10 @@ export const extractPdfText = async (filePath: string): Promise<ExtractedPdfText
       })
       chunks.push(...splitPageIntoChunks(pageNumber, text))
       page.cleanup()
+
+      if (pageNumber < pdf.numPages) {
+        await yieldToEventLoop()
+      }
     }
 
     return {

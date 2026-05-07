@@ -86,7 +86,24 @@ export class KeyStore {
       return {}
     }
 
-    return JSON.parse(readFileSync(this.secretsPath, 'utf8')) as StoredSecrets
+    try {
+      const parsed = JSON.parse(readFileSync(this.secretsPath, 'utf8')) as unknown
+
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        console.warn(`Ignoring invalid secrets file shape: ${this.secretsPath}`)
+        return {}
+      }
+
+      return Object.fromEntries(
+        Object.entries(parsed).filter((entry): entry is [string, string] => {
+          const [key, value] = entry
+          return typeof key === 'string' && typeof value === 'string'
+        })
+      )
+    } catch (error) {
+      console.warn(`Ignoring unreadable secrets file: ${this.secretsPath}`, error)
+      return {}
+    }
   }
 
   private writeAll(secrets: StoredSecrets): void {
