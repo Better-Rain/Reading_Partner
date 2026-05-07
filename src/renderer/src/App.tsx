@@ -7,7 +7,6 @@ import {
   AIPromptType,
   AIStreamEvent,
   AnnotationRecord,
-  DictionaryEntryRecord,
   DocumentSearchResult,
   DocumentRecord,
   OpenPdfResult,
@@ -49,7 +48,6 @@ import { ReaderToolbar } from './components/ReaderToolbar'
 import { SettingsPanel } from './components/SettingsPanel'
 import { VocabularyPanel } from './components/VocabularyPanel'
 import { WindowTitlebar } from './components/WindowTitlebar'
-import { makeDefinitionFromDictionary } from './vocabularyUtils'
 import { PanState, useReaderPan } from './hooks/useReaderPan'
 import { useReaderShortcuts } from './hooks/useReaderShortcuts'
 import {
@@ -61,6 +59,7 @@ import { useDocumentTextIndex } from './hooks/useDocumentTextIndex'
 import { useAnnotationUndo } from './hooks/useAnnotationUndo'
 import { useAIOperations } from './hooks/useAIOperations'
 import { useAIConversations } from './hooks/useAIConversations'
+import { useVocabularyActions } from './hooks/useVocabularyActions'
 import { getStoredReaderName, toPdfBlobUrl } from './readerLocalState'
 
 type PanelTab = InspectorTab
@@ -287,6 +286,22 @@ function App(): JSX.Element {
     activeDocument,
     setActiveTab,
     setStatus
+  })
+  const {
+    createVocabularyFromSelection,
+    addDictionaryEntryToVocabulary,
+    importDictionary,
+    deleteVocabulary
+  } = useVocabularyActions({
+    activeDocument,
+    pageNumber,
+    selectionText: selection?.text ?? null,
+    vocabulary,
+    refreshDictionarySources,
+    setActiveTab,
+    setSelection,
+    setStatus,
+    setVocabulary
   })
 
   const clearSearch = (): void => {
@@ -822,86 +837,6 @@ function App(): JSX.Element {
       await refreshAnnotations(activeDocument.id)
       resetAnnotationUndoStack()
       setStatus(`已导入 ${result.annotationCount} 条阅读记录`)
-    }
-  }
-
-  const createVocabularyFromSelection = async (): Promise<void> => {
-    if (!activeDocument || !selection?.text) {
-      return
-    }
-
-    try {
-      const word = selection.text.replace(/\s+/g, ' ').trim()
-      const lookup = await window.readingPartner.lookupDictionary(word)
-      const definition = lookup.entry ? makeDefinitionFromDictionary(lookup.entry) : '待补充释义'
-      const created = await window.readingPartner.createVocabulary({
-        documentId: activeDocument.id,
-        word,
-        definition,
-        sourceSentence: selection.text,
-        pageNumber
-      })
-
-      setVocabulary((items) => [created, ...items])
-      setSelection(null)
-      setActiveTab('vocab')
-      setStatus(lookup.entry ? '已用本地词典释义加入词汇本' : '已加入词汇本，未命中本地词典')
-    } catch (error) {
-      setStatus(`加入词汇本失败：${error instanceof Error ? error.message : String(error)}`)
-    }
-  }
-
-  const addDictionaryEntryToVocabulary = async (entry: DictionaryEntryRecord): Promise<void> => {
-    if (!activeDocument) {
-      return
-    }
-
-    const exists = vocabulary.some(
-      (item) => item.word.trim().toLocaleLowerCase() === entry.word.trim().toLocaleLowerCase()
-    )
-
-    if (exists) {
-      setStatus(`“${entry.word}” 已在当前 PDF 生词本中`)
-      return
-    }
-
-    try {
-      const created = await window.readingPartner.createVocabulary({
-        documentId: activeDocument.id,
-        word: entry.word,
-        definition: makeDefinitionFromDictionary(entry),
-        pageNumber: null
-      })
-
-      setVocabulary((items) => [created, ...items])
-      setStatus(`已将“${entry.word}”加入当前 PDF 生词本`)
-    } catch (error) {
-      setStatus(`加入生词本失败：${error instanceof Error ? error.message : String(error)}`)
-    }
-  }
-
-  const importDictionary = async (): Promise<void> => {
-    try {
-      const result = await window.readingPartner.importDictionaryCsvDialog()
-
-      if (!result) {
-        return
-      }
-
-      setStatus(`词典导入完成：${result.imported} 条，跳过 ${result.skipped} 条`)
-      await refreshDictionarySources()
-    } catch (error) {
-      setStatus(`词典导入失败：${error instanceof Error ? error.message : String(error)}`)
-    }
-  }
-
-  const deleteVocabulary = async (id: string): Promise<void> => {
-    try {
-      await window.readingPartner.deleteVocabulary(id)
-      setVocabulary((items) => items.filter((item) => item.id !== id))
-      setStatus('已删除词汇')
-    } catch (error) {
-      setStatus(`删除词汇失败：${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
