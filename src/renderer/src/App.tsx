@@ -3,28 +3,15 @@ import type { MouseEvent as ReactMouseEvent, WheelEvent } from 'react'
 import type { Source } from 'react-pdf/dist/shared/types.js'
 import { Document, Page } from 'react-pdf'
 import {
-  Bookmark,
-  BookMarked,
-  Bot,
-  Check,
   ChevronLeft,
   ChevronRight,
   Eye,
   FileText,
-  Highlighter,
   Hand,
-  Languages,
-  Maximize2,
   Minus,
   MousePointer2,
   Plus,
-  Search,
-  Settings,
-  Sparkles,
-  StickyNote,
-  Trash2,
   Upload,
-  X
 } from 'lucide-react'
 import {
   AIChatMessageRecord,
@@ -58,6 +45,8 @@ import {
   AnnotationOverlay,
   TemporarySearchHighlight
 } from './components/AnnotationOverlay'
+import { InspectorTabBar, type InspectorTab } from './components/InspectorTabBar'
+import { LibraryPanel } from './components/LibraryPanel'
 import {
   AnnotationColorPreset,
   AnnotationFilterState,
@@ -68,8 +57,10 @@ import {
   matchesAnnotationFilters
 } from './components/NotesPanel'
 import { SearchPanel } from './components/SearchPanel'
+import { SelectionToolbar } from './components/SelectionToolbar'
 import { SettingsPanel } from './components/SettingsPanel'
 import { VocabularyPanel } from './components/VocabularyPanel'
+import { WindowTitlebar } from './components/WindowTitlebar'
 import { makeDefinitionFromDictionary } from './vocabularyUtils'
 import {
   buildTextLayerSearchIndex,
@@ -79,7 +70,7 @@ import {
 import { PanState, useReaderPan } from './hooks/useReaderPan'
 import { useReaderShortcuts } from './hooks/useReaderShortcuts'
 
-type PanelTab = 'notes' | 'search' | 'ai' | 'vocab' | 'settings'
+type PanelTab = InspectorTab
 type SelectionState = {
   text: string
   x: number
@@ -124,14 +115,6 @@ const clampScale = (value: number): number =>
   Math.min(maxScale, Math.max(minScale, Number(value.toFixed(2))))
 
 const roundRectValue = (value: number): number => Number(value.toFixed(2))
-
-const formatBytes = (bytes: number): string => {
-  if (bytes < 1024 * 1024) {
-    return `${Math.max(1, Math.round(bytes / 1024))} KB`
-  }
-
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
 
 const makeConversationTitle = (message: string): string => {
   const normalized = message
@@ -1337,74 +1320,21 @@ function App(): JSX.Element {
 
   return (
     <div className="app-shell">
-      <header className="window-titlebar">
-        <div className="window-titlebar-brand">
-          <span className="window-title-dot" />
-          <strong>Reading Partner</strong>
-        </div>
-        <div className="window-controls">
-          <button title="最小化" onClick={() => void window.readingPartner.minimizeWindow()}>
-            <Minus size={14} />
-          </button>
-          <button title={isWindowMaximized ? '还原' : '最大化'} onClick={() => void toggleWindowMaximize()}>
-            <Maximize2 size={14} />
-          </button>
-          <button className="close" title="关闭" onClick={() => void window.readingPartner.closeWindow()}>
-            <X size={15} />
-          </button>
-        </div>
-      </header>
+      <WindowTitlebar
+        isMaximized={isWindowMaximized}
+        onClose={() => void window.readingPartner.closeWindow()}
+        onMinimize={() => void window.readingPartner.minimizeWindow()}
+        onToggleMaximize={() => void toggleWindowMaximize()}
+      />
       <div className="app-layout">
-      <aside className="library-panel">
-        <div className="brand">
-          <div className="brand-mark">RP</div>
-          <div>
-            <h1>Reading Partner</h1>
-            <p>AI assisted PDF workspace</p>
-          </div>
-        </div>
-
-        <button className="primary-action" onClick={() => void openPdf()}>
-          <Upload size={18} />
-          打开 PDF
-        </button>
-
-        <section className="panel-section">
-          <div className="section-heading">
-            <FileText size={16} />
-            文档库
-          </div>
-          <div className="document-list">
-            {documents.length === 0 ? (
-              <p className="muted">还没有导入文档。</p>
-            ) : (
-              documents.map((document) => (
-                <button
-                  className={document.id === activeDocument?.id ? 'document-item active' : 'document-item'}
-                  key={document.id}
-                  onClick={() => void loadDocument(document)}
-                >
-                  <span>{document.title}</span>
-                  <small>
-                    {formatBytes(document.fileSize)} · {formatTime(document.lastOpenedAt)}
-                  </small>
-                </button>
-              ))
-            )}
-          </div>
-        </section>
-
-        <section className="panel-section">
-          <div className="section-heading">
-            <Bookmark size={16} />
-            当前页
-          </div>
-          <div className="page-summary">
-            <strong>{activeDocument ? `第 ${pageNumber} 页` : '未打开文档'}</strong>
-            <span>{currentPageAnnotations.length} 条批注</span>
-          </div>
-        </section>
-      </aside>
+      <LibraryPanel
+        activeDocumentId={activeDocument?.id ?? null}
+        currentPageAnnotationCount={currentPageAnnotations.length}
+        documents={documents}
+        pageNumber={pageNumber}
+        onLoadDocument={(document) => void loadDocument(document)}
+        onOpenPdf={() => void openPdf()}
+      />
 
       <main className="reader-column">
         <header className="reader-toolbar">
@@ -1604,94 +1534,28 @@ function App(): JSX.Element {
         </div>
 
         {selection && (
-          <div
-            className={isSelectionNoteEditorOpen ? 'selection-toolbar has-note-editor' : 'selection-toolbar'}
-            style={{
-              left: selection.x,
-              top: selection.y
+          <SelectionToolbar
+            isNoteEditorOpen={isSelectionNoteEditorOpen}
+            noteDraft={selectionNoteDraft}
+            x={selection.x}
+            y={selection.y}
+            onCancelNote={() => {
+              setSelectionNoteDraft('')
+              setIsSelectionNoteEditorOpen(false)
             }}
-          >
-            <button title="高亮 (H)" onClick={() => void createAnnotation('highlight')}>
-              <Highlighter size={16} />
-              高亮
-            </button>
-            <button title="批注 (N)" onClick={() => setIsSelectionNoteEditorOpen((value) => !value)}>
-              <StickyNote size={16} />
-              批注
-            </button>
-            <button title="翻译" onClick={() => void runAIAction('translate_selection')}>
-              <Languages size={16} />
-              翻译
-            </button>
-            <button title="解释" onClick={() => void runAIAction('explain_selection')}>
-              <Sparkles size={16} />
-              解释
-            </button>
-            <button title="加入词汇本" onClick={() => void createVocabularyFromSelection()}>
-              <BookMarked size={16} />
-              生词
-            </button>
-            {isSelectionNoteEditorOpen && (
-              <div className="selection-note-editor">
-                <textarea
-                  autoFocus
-                  placeholder="写下这段原文的批注..."
-                  value={selectionNoteDraft}
-                  onChange={(event) => setSelectionNoteDraft(event.target.value)}
-                />
-                <div className="selection-note-actions">
-                  <button
-                    title="保存批注"
-                    onClick={() =>
-                      void createAnnotation('note', selectionNoteDraft.trim() || '待补充笔记')
-                    }
-                  >
-                    <Check size={15} />
-                    保存
-                  </button>
-                  <button
-                    title="取消"
-                    onClick={() => {
-                      setSelectionNoteDraft('')
-                      setIsSelectionNoteEditorOpen(false)
-                    }}
-                  >
-                    <X size={15} />
-                    取消
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+            onCreateHighlight={() => void createAnnotation('highlight')}
+            onCreateNote={(note) => void createAnnotation('note', note)}
+            onCreateVocabulary={() => void createVocabularyFromSelection()}
+            onExplain={() => void runAIAction('explain_selection')}
+            onNoteDraftChange={setSelectionNoteDraft}
+            onToggleNoteEditor={() => setIsSelectionNoteEditorOpen((value) => !value)}
+            onTranslate={() => void runAIAction('translate_selection')}
+          />
         )}
       </main>
 
       <aside className="inspector-panel">
-        <nav className="tab-bar">
-          <button className={activeTab === 'notes' ? 'active' : ''} onClick={() => setActiveTab('notes')}>
-            <StickyNote size={16} />
-            笔记
-          </button>
-          <button className={activeTab === 'search' ? 'active' : ''} onClick={() => setActiveTab('search')}>
-            <Search size={16} />
-            搜索
-          </button>
-          <button className={activeTab === 'ai' ? 'active' : ''} onClick={() => setActiveTab('ai')}>
-            <Bot size={16} />
-            AI
-          </button>
-          <button className={activeTab === 'vocab' ? 'active' : ''} onClick={() => setActiveTab('vocab')}>
-            <BookMarked size={16} />
-            词汇
-          </button>
-          <button
-            className={activeTab === 'settings' ? 'active' : ''}
-            onClick={() => setActiveTab('settings')}
-          >
-            <Settings size={16} />
-            配置
-          </button>
-        </nav>
+        <InspectorTabBar activeTab={activeTab} onChange={setActiveTab} />
 
         {activeTab === 'notes' && (
           <NotesPanel
