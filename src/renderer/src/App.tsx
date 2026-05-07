@@ -42,10 +42,14 @@ import {
   VocabularyRecord
 } from '../../shared/types'
 import {
-  aiAnnotationBlockPattern,
   extractAIReasoning,
   stripAIReasoningBlock
 } from './aiText'
+import {
+  aiDefaultAnnotationColor,
+  extractAIAssistedAnnotations,
+  type AIAssistedAnnotation
+} from './aiAnnotations'
 import { AIOperationRecord, AIRunState, promptLabels } from './aiPanelTypes'
 import { AnnotationRect, normalizeAnnotationRects } from './annotationGeometry'
 import { AiPanel } from './components/AiPanel'
@@ -67,6 +71,11 @@ import { SearchPanel } from './components/SearchPanel'
 import { SettingsPanel } from './components/SettingsPanel'
 import { VocabularyPanel } from './components/VocabularyPanel'
 import { makeDefinitionFromDictionary } from './vocabularyUtils'
+import {
+  buildTextLayerSearchIndex,
+  findSearchMatch,
+  rectsFromTextLayerMatch
+} from './pdfSearchHighlight'
 
 type PanelTab = 'notes' | 'search' | 'ai' | 'vocab' | 'settings'
 type SelectionState = {
@@ -80,16 +89,6 @@ type ActiveSearchTarget = {
   nonce: number
   query: string
   result: DocumentSearchResult
-}
-
-type TextLayerPosition = {
-  node: Text
-  offset: number
-}
-
-type TextLayerSearchIndex = {
-  text: string
-  positions: TextLayerPosition[]
 }
 
 type AnnotationUndoAction =
@@ -107,19 +106,9 @@ type AnnotationUndoAction =
       after: AnnotationRecord
     }
 
-type AIAssistedAnnotation = {
-  pageNumber: number
-  scope: 'paragraph' | 'vocabulary' | 'note'
-  selectedText: string | null
-  note: string
-  color: string
-}
-
 const minScale = 0.75
 const maxScale = 3
 const scaleStep = 0.12
-const aiDefaultAnnotationColor = '#c7d2fe'
-const maxAIAssistedAnnotations = 2
 
 const annotationColorPresets: AnnotationColorPreset[] = [
   { label: '黄色', value: '#f8d86a' },
@@ -133,284 +122,6 @@ const clampScale = (value: number): number =>
   Math.min(maxScale, Math.max(minScale, Number(value.toFixed(2))))
 
 const roundRectValue = (value: number): number => Number(value.toFixed(2))
-
-const normalizeAIAssistedColor = (value: unknown): string => {
-  if (typeof value !== 'string') {
-    return aiDefaultAnnotationColor
-  }
-
-  const normalized = value.trim().toLocaleLowerCase()
-  const allowed = [aiDefaultAnnotationColor, ...annotationColorPresets.map((preset) => preset.value)]
-    .map((color) => color.toLocaleLowerCase())
-    .includes(normalized)
-
-  return allowed ? value.trim() : aiDefaultAnnotationColor
-}
-
-const toLimitedText = (value: unknown, maxLength: number): string | null => {
-  if (typeof value !== 'string') {
-    return null
-  }
-
-  const trimmed = value.replace(/\s+/g, ' ').trim()
-
-  if (!trimmed) {
-    return null
-  }
-
-  return trimmed.length > maxLength ? `${trimmed.slice(0, maxLength)}...` : trimmed
-}
-
-const extractAIAssistedAnnotations = (
-  output: string,
-  fallbackPageNumber: number,
-  totalPages: number
-): { displayOutput: string; annotations: AIAssistedAnnotation[] } => {
-  const annotations: AIAssistedAnnotation[] = []
-  const matches = Array.from(output.matchAll(aiAnnotationBlockPattern))
-
-  for (const match of matches) {
-    if (annotations.length >= maxAIAssistedAnnotations) {
-      break
-    }
-
-    try {
-      const parsed = JSON.parse(match[1] ?? '[]') as unknown
-      const items = Array.isArray(parsed)
-        ? parsed
-        : parsed && typeof parsed === 'object' && Array.isArray((parsed as { annotations?: unknown }).annotations)
-          ? (parsed as { annotations: unknown[] }).annotations
-          : []
-
-      for (const item of items) {
-        if (annotations.length >= maxAIAssistedAnnotations || !item || typeof item !== 'object') {
-          break
-        }
-
-        const draft = item as Record<string, unknown>
-        const rawPageNumber = Number(draft.pageNumber)
-        const pageNumber = Number.isFinite(rawPageNumber)
-          ? Math.floor(rawPageNumber)
-          : fallbackPageNumber
-
-        if (pageNumber < 1 || (totalPages > 0 && pageNumber > totalPages)) {
-          continue
-        }
-
-        const note = toLimitedText(draft.note, 900)
-
-        if (!note) {
-          continue
-        }
-
-        annotations.push({
-          pageNumber,
-          scope:
-            draft.scope === 'paragraph' || draft.scope === 'vocabulary'
-              ? draft.scope
-              : 'note',
-          selectedText: toLimitedText(draft.selectedText, 500),
-          note,
-          color: normalizeAIAssistedColor(draft.color)
-        })
-      }
-    } catch {
-      continue
-    }
-  }
-
-  return {
-    displayOutput: stripAIAssistedAnnotationBlock(output),
-    annotations
-  }
-}
-
-const isSearchTextChar = (value: string): boolean => /^[\p{L}\p{N}]$/u.test(value)
-
-const normalizeSearchText = (value: string): string =>
-  value
-    .trim()
-    .toLocaleLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-
-const getSearchTerms = (query: string): string[] =>
-  Array.from(new Set(normalizeSearchText(query).split(' ').filter(Boolean))).slice(0, 8)
-
-const buildTextLayerSearchIndex = (textLayer: HTMLElement): TextLayerSearchIndex => {
-  const walker = document.createTreeWalker(textLayer, NodeFilter.SHOW_TEXT)
-  let text = ''
-  const positions: TextLayerPosition[] = []
-  let node = walker.nextNode() as Text | null
-
-  const appendSpace = (position: TextLayerPosition): void => {
-    if (text && !text.endsWith(' ')) {
-      text += ' '
-      positions.push(position)
-    }
-  }
-
-  while (node) {
-    const value = node.nodeValue ?? ''
-
-    for (let offset = 0; offset < value.length; offset += 1) {
-      const char = value[offset]
-      const position = { node, offset }
-
-      if (isSearchTextChar(char)) {
-        text += char.toLocaleLowerCase()
-        positions.push(position)
-      } else {
-        appendSpace(position)
-      }
-    }
-
-    node = walker.nextNode() as Text | null
-  }
-
-  return {
-    text,
-    positions
-  }
-}
-
-const findAnchoredSearchMatch = (
-  pageText: string,
-  candidateText: string,
-  terms: string[]
-): { start: number; end: number } | null => {
-  const normalizedCandidate = normalizeSearchText(candidateText)
-
-  if (!normalizedCandidate) {
-    return null
-  }
-
-  const exactStart = normalizedCandidate.length <= 260 ? pageText.indexOf(normalizedCandidate) : -1
-
-  if (exactStart !== -1) {
-    return {
-      start: exactStart,
-      end: exactStart + normalizedCandidate.length
-    }
-  }
-
-  const matchedTerm = terms.find((term) => normalizedCandidate.includes(term))
-
-  if (!matchedTerm) {
-    return null
-  }
-
-  const termIndex = normalizedCandidate.indexOf(matchedTerm)
-  const radii = [180, 120, 80, 48, 24, matchedTerm.length]
-
-  for (const radius of radii) {
-    const anchorStart = Math.max(0, termIndex - radius)
-    const anchorEnd = Math.min(normalizedCandidate.length, termIndex + matchedTerm.length + radius)
-    const anchor = normalizedCandidate.slice(anchorStart, anchorEnd).trim()
-
-    if (anchor.length < matchedTerm.length) {
-      continue
-    }
-
-    const pageAnchorStart = pageText.indexOf(anchor)
-
-    if (pageAnchorStart !== -1) {
-      const termOffset = anchor.indexOf(matchedTerm)
-
-      return {
-        start: pageAnchorStart + Math.max(0, termOffset),
-        end: pageAnchorStart + Math.max(0, termOffset) + matchedTerm.length
-      }
-    }
-  }
-
-  return null
-}
-
-const findSearchMatch = (
-  index: TextLayerSearchIndex,
-  result: DocumentSearchResult,
-  query: string
-): { start: number; end: number } | null => {
-  const terms = getSearchTerms(query)
-  const candidates = [result.text, result.snippet.replace(/^\.+|\.+$/g, '')].filter(Boolean)
-
-  for (const candidate of candidates) {
-    const anchoredMatch = findAnchoredSearchMatch(index.text, candidate, terms)
-
-    if (anchoredMatch) {
-      return anchoredMatch
-    }
-  }
-
-  const exactQuery = normalizeSearchText(query)
-  const exactStart = exactQuery ? index.text.indexOf(exactQuery) : -1
-
-  if (exactStart !== -1) {
-    return {
-      start: exactStart,
-      end: exactStart + exactQuery.length
-    }
-  }
-
-  for (const term of terms) {
-    const termStart = index.text.indexOf(term)
-
-    if (termStart !== -1) {
-      return {
-        start: termStart,
-        end: termStart + term.length
-      }
-    }
-  }
-
-  return null
-}
-
-const rectsFromTextLayerMatch = (
-  index: TextLayerSearchIndex,
-  match: { start: number; end: number },
-  pageElement: HTMLElement,
-  scale: number
-): AnnotationRect[] => {
-  const startPosition = index.positions[match.start]
-  const endPosition = index.positions[Math.max(match.start, match.end - 1)]
-
-  if (!startPosition || !endPosition) {
-    return []
-  }
-
-  const range = document.createRange()
-  range.setStart(startPosition.node, startPosition.offset)
-  range.setEnd(endPosition.node, endPosition.offset + 1)
-
-  const pageRect = pageElement.getBoundingClientRect()
-  const rects = Array.from(range.getClientRects())
-    .map((item) => {
-      const left = Math.max(item.left, pageRect.left)
-      const top = Math.max(item.top, pageRect.top)
-      const right = Math.min(item.right, pageRect.right)
-      const bottom = Math.min(item.bottom, pageRect.bottom)
-      const width = right - left
-      const height = bottom - top
-
-      if (width <= 1 || height <= 1) {
-        return null
-      }
-
-      return {
-        left: roundRectValue((left - pageRect.left) / scale),
-        top: roundRectValue((top - pageRect.top) / scale),
-        width: roundRectValue(width / scale),
-        height: roundRectValue(height / scale)
-      }
-    })
-    .filter((item): item is AnnotationRect => Boolean(item))
-
-  range.detach()
-  return normalizeAnnotationRects(rects)
-}
 
 const formatBytes = (bytes: number): string => {
   if (bytes < 1024 * 1024) {
@@ -1004,7 +715,8 @@ function App(): JSX.Element {
     } = extractAIAssistedAnnotations(
       event.artifact.outputMarkdown,
       event.artifact.pageNumber ?? pageNumber,
-      pageCount
+      pageCount,
+      annotationColorPresets.map((preset) => preset.value)
     )
     const finalReasoning = extractAIReasoning(displayOutput).reasoning
     const visibleOutputForNote = stripAIReasoningBlock(displayOutput)
