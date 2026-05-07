@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties } from 'react'
 import type { MouseEvent as ReactMouseEvent, WheelEvent } from 'react'
 import type { Source } from 'react-pdf/dist/shared/types.js'
 import { Document, Page } from 'react-pdf'
@@ -48,7 +47,13 @@ import {
   stripAIReasoningBlock
 } from './aiText'
 import { AIOperationRecord, AIRunState, promptLabels } from './aiPanelTypes'
+import { AnnotationRect, normalizeAnnotationRects } from './annotationGeometry'
 import { AiPanel } from './components/AiPanel'
+import {
+  AnnotationInteractionMode,
+  AnnotationOverlay,
+  TemporarySearchHighlight
+} from './components/AnnotationOverlay'
 import {
   AnnotationColorPreset,
   AnnotationFilterState,
@@ -64,7 +69,6 @@ import { VocabularyPanel } from './components/VocabularyPanel'
 import { makeDefinitionFromDictionary } from './vocabularyUtils'
 
 type PanelTab = 'notes' | 'search' | 'ai' | 'vocab' | 'settings'
-type AnnotationInteractionMode = 'inspect' | 'select'
 type SelectionState = {
   text: string
   x: number
@@ -72,30 +76,10 @@ type SelectionState = {
   rects: AnnotationRect[]
 }
 
-type AnnotationRect = {
-  left: number
-  top: number
-  width: number
-  height: number
-}
-
-type HoveredAnnotation = {
-  annotation: AnnotationRecord
-  x: number
-  y: number
-}
-
 type ActiveSearchTarget = {
   nonce: number
   query: string
   result: DocumentSearchResult
-}
-
-type TemporarySearchHighlight = {
-  id: string
-  pageNumber: number
-  text: string
-  rects: AnnotationRect[]
 }
 
 type TextLayerPosition = {
@@ -149,101 +133,6 @@ const clampScale = (value: number): number =>
   Math.min(maxScale, Math.max(minScale, Number(value.toFixed(2))))
 
 const roundRectValue = (value: number): number => Number(value.toFixed(2))
-
-const rectArea = (rect: AnnotationRect): number => rect.width * rect.height
-
-const rectOverlapArea = (first: AnnotationRect, second: AnnotationRect): number => {
-  const left = Math.max(first.left, second.left)
-  const top = Math.max(first.top, second.top)
-  const right = Math.min(first.left + first.width, second.left + second.width)
-  const bottom = Math.min(first.top + first.height, second.top + second.height)
-
-  return Math.max(0, right - left) * Math.max(0, bottom - top)
-}
-
-const normalizeAnnotationRects = (rects: AnnotationRect[]): AnnotationRect[] => {
-  const sorted = [...rects].sort((first, second) => {
-    const topDelta = first.top - second.top
-
-    if (Math.abs(topDelta) > 1) {
-      return topDelta
-    }
-
-    const areaDelta = rectArea(second) - rectArea(first)
-
-    if (Math.abs(areaDelta) > 1) {
-      return areaDelta
-    }
-
-    return first.left - second.left
-  })
-
-  return sorted.filter((rect, index) => {
-    const area = rectArea(rect)
-
-    if (area <= 0) {
-      return false
-    }
-
-    return !sorted.some((candidate, candidateIndex) => {
-      if (candidateIndex === index) {
-        return false
-      }
-
-      const candidateArea = rectArea(candidate)
-
-      if (candidateArea < area) {
-        return false
-      }
-
-      if (Math.abs(candidateArea - area) <= 0.5 && candidateIndex > index) {
-        return false
-      }
-
-      const overlap = rectOverlapArea(rect, candidate)
-
-      return overlap / area >= 0.82
-    })
-  })
-}
-
-const parseAnnotationRects = (rectsJson: string | null): AnnotationRect[] => {
-  if (!rectsJson) {
-    return []
-  }
-
-  try {
-    const parsed = JSON.parse(rectsJson) as unknown
-
-    if (!Array.isArray(parsed)) {
-      return []
-    }
-
-    const rects = parsed
-      .map((item) => {
-        if (!item || typeof item !== 'object') {
-          return null
-        }
-
-        const rect = item as Partial<Record<keyof AnnotationRect, unknown>>
-        const left = Number(rect.left)
-        const top = Number(rect.top)
-        const width = Number(rect.width)
-        const height = Number(rect.height)
-
-        if (![left, top, width, height].every(Number.isFinite) || width <= 0 || height <= 0) {
-          return null
-        }
-
-        return { left, top, width, height }
-      })
-      .filter((item): item is AnnotationRect => Boolean(item))
-
-    return normalizeAnnotationRects(rects)
-  } catch {
-    return []
-  }
-}
 
 const normalizeAIAssistedColor = (value: unknown): string => {
   if (typeof value !== 'string') {
@@ -523,28 +412,6 @@ const rectsFromTextLayerMatch = (
   return normalizeAnnotationRects(rects)
 }
 
-const hexToRgba = (value: string | null | undefined, alpha: number): string => {
-  const color = value?.trim() || '#f8d86a'
-  const normalized = color.startsWith('#') ? color.slice(1) : color
-  const expanded =
-    normalized.length === 3
-      ? normalized
-          .split('')
-          .map((part) => `${part}${part}`)
-          .join('')
-      : normalized
-
-  if (!/^[0-9a-fA-F]{6}$/.test(expanded)) {
-    return `rgba(248, 216, 106, ${alpha})`
-  }
-
-  const red = Number.parseInt(expanded.slice(0, 2), 16)
-  const green = Number.parseInt(expanded.slice(2, 4), 16)
-  const blue = Number.parseInt(expanded.slice(4, 6), 16)
-
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
-}
-
 const formatBytes = (bytes: number): string => {
   if (bytes < 1024 * 1024) {
     return `${Math.max(1, Math.round(bytes / 1024))} KB`
@@ -590,248 +457,6 @@ type PanState = {
   startY: number
   scrollLeft: number
   scrollTop: number
-}
-
-function AnnotationOverlay({
-  annotations,
-  interactionMode,
-  scale,
-  temporaryHighlight
-}: {
-  annotations: AnnotationRecord[]
-  interactionMode: AnnotationInteractionMode
-  scale: number
-  temporaryHighlight: TemporarySearchHighlight | null
-}): JSX.Element {
-  const [hoveredAnnotation, setHoveredAnnotation] = useState<HoveredAnnotation | null>(null)
-  const [pinnedAnnotation, setPinnedAnnotation] = useState<HoveredAnnotation | null>(null)
-  const canInspect = interactionMode === 'inspect'
-  const visualItems = annotations.map((annotation) => ({
-    annotation,
-    rects: parseAnnotationRects(annotation.rectsJson)
-  }))
-  const pageMarkers = visualItems.filter(({ annotation, rects }) => annotation.type === 'bookmark' || rects.length === 0)
-
-  useEffect(() => {
-    if (!canInspect) {
-      setHoveredAnnotation(null)
-      setPinnedAnnotation(null)
-      return
-    }
-
-    if (
-      pinnedAnnotation &&
-      !annotations.some((annotation) => annotation.id === pinnedAnnotation.annotation.id)
-    ) {
-      setPinnedAnnotation(null)
-    }
-  }, [annotations, canInspect, pinnedAnnotation])
-
-  useEffect(() => {
-    if (!pinnedAnnotation) {
-      return
-    }
-
-    let pointerDown: { x: number; y: number; target: EventTarget | null } | null = null
-
-    const rememberPointerDown = (event: MouseEvent): void => {
-      pointerDown = {
-        x: event.clientX,
-        y: event.clientY,
-        target: event.target
-      }
-    }
-
-    const closePinnedTooltip = (event: MouseEvent): void => {
-      const target = pointerDown?.target ?? event.target
-
-      if (!(target instanceof HTMLElement)) {
-        return
-      }
-
-      const deltaX = pointerDown ? event.clientX - pointerDown.x : 0
-      const deltaY = pointerDown ? event.clientY - pointerDown.y : 0
-
-      if (Math.hypot(deltaX, deltaY) > 5) {
-        return
-      }
-
-      if (
-        target.closest(
-          '.pdf-annotation-rect, .pdf-annotation-pin, .pdf-page-marker, .pdf-annotation-tooltip'
-        )
-      ) {
-        return
-      }
-
-      setPinnedAnnotation(null)
-    }
-
-    document.addEventListener('mousedown', rememberPointerDown)
-    document.addEventListener('mouseup', closePinnedTooltip)
-
-    return () => {
-      document.removeEventListener('mousedown', rememberPointerDown)
-      document.removeEventListener('mouseup', closePinnedTooltip)
-    }
-  }, [pinnedAnnotation])
-
-  const showTooltip = (annotation: AnnotationRecord, event: ReactMouseEvent): void => {
-    if (!canInspect) {
-      return
-    }
-
-    const layerRect = event.currentTarget
-      .closest('.pdf-annotation-layer')
-      ?.getBoundingClientRect()
-
-    setHoveredAnnotation({
-      annotation,
-      x: layerRect ? event.clientX - layerRect.left + 14 : 14,
-      y: layerRect ? event.clientY - layerRect.top + 14 : 14
-    })
-  }
-  const pinTooltip = (annotation: AnnotationRecord, event: ReactMouseEvent): void => {
-    if (!canInspect) {
-      return
-    }
-
-    event.preventDefault()
-    event.stopPropagation()
-    const layerRect = event.currentTarget
-      .closest('.pdf-annotation-layer')
-      ?.getBoundingClientRect()
-
-    setPinnedAnnotation({
-      annotation,
-      x: layerRect ? event.clientX - layerRect.left + 14 : 14,
-      y: layerRect ? event.clientY - layerRect.top + 14 : 14
-    })
-  }
-  const hideTooltip = (): void => setHoveredAnnotation(null)
-  const visibleTooltip = pinnedAnnotation ?? hoveredAnnotation
-
-  return (
-    <div
-      className={canInspect ? 'pdf-annotation-layer is-inspecting' : 'pdf-annotation-layer is-selecting'}
-      aria-hidden={!canInspect}
-    >
-      {visualItems.flatMap(({ annotation, rects }) =>
-        rects.map((rect, rectIndex) => {
-          const verticalInset = annotation.type === 'highlight' ? Math.min(3, rect.height * scale * 0.18) : 0
-          const style: CSSProperties = {
-            left: rect.left * scale,
-            top: rect.top * scale + verticalInset,
-            width: rect.width * scale,
-            height: Math.max(2, rect.height * scale - verticalInset * 2),
-            backgroundColor:
-              annotation.type === 'highlight'
-                ? hexToRgba(annotation.color, 0.44)
-                : hexToRgba(annotation.color ?? '#6aa7f8', 0.24),
-            borderColor: annotation.color ?? (annotation.type === 'note' ? '#3f7fc8' : '#d6ad22')
-          }
-
-          return (
-            <span
-              className={`pdf-annotation-rect is-${annotation.type}`}
-              key={`${annotation.id}-${rectIndex}`}
-              onMouseEnter={(event) => showTooltip(annotation, event)}
-              onMouseMove={(event) => showTooltip(annotation, event)}
-              onMouseLeave={hideTooltip}
-              onClick={(event) => pinTooltip(annotation, event)}
-              style={style}
-            />
-          )
-        })
-      )}
-
-      {visualItems
-        .filter(({ annotation, rects }) => annotation.type === 'note' && rects.length > 0)
-        .map(({ annotation, rects }) => {
-          const firstRect = rects[0]
-
-          return (
-            <span
-              className="pdf-annotation-pin is-note"
-              key={`${annotation.id}-pin`}
-              onMouseEnter={(event) => showTooltip(annotation, event)}
-              onMouseMove={(event) => showTooltip(annotation, event)}
-              onMouseLeave={hideTooltip}
-              onClick={(event) => pinTooltip(annotation, event)}
-              style={{
-                left: (firstRect.left + firstRect.width) * scale + 6,
-                top: firstRect.top * scale
-              }}
-            />
-          )
-        })}
-
-      {pageMarkers.map(({ annotation }, index) => (
-        <span
-          className={`pdf-page-marker is-${annotation.type}`}
-          key={`${annotation.id}-marker`}
-          onMouseEnter={(event) => showTooltip(annotation, event)}
-          onMouseMove={(event) => showTooltip(annotation, event)}
-          onMouseLeave={hideTooltip}
-          onClick={(event) => pinTooltip(annotation, event)}
-          style={{
-            top: 12 + index * 30,
-            backgroundColor:
-              annotation.type === 'bookmark' ? undefined : annotation.color ?? undefined
-          }}
-        />
-      ))}
-      {temporaryHighlight?.rects.map((rect, rectIndex) => {
-        const verticalInset = Math.min(4, rect.height * scale * 0.16)
-
-        return (
-          <span
-            className="pdf-annotation-rect is-search-target"
-            key={`${temporaryHighlight.id}-${rectIndex}`}
-            style={{
-              left: rect.left * scale,
-              top: rect.top * scale + verticalInset,
-              width: rect.width * scale,
-              height: Math.max(3, rect.height * scale - verticalInset * 2)
-            }}
-          />
-        )
-      })}
-      {canInspect && visibleTooltip && (
-        <div
-          className={pinnedAnnotation ? 'pdf-annotation-tooltip is-pinned' : 'pdf-annotation-tooltip'}
-          style={{
-            left: visibleTooltip.x,
-            top: visibleTooltip.y
-          }}
-        >
-          <div className="pdf-annotation-tooltip-heading">
-            <strong>
-              {visibleTooltip.annotation.type === 'highlight'
-                ? '高亮'
-                : visibleTooltip.annotation.type === 'note'
-                  ? '批注'
-                  : '书签'}
-            </strong>
-            {pinnedAnnotation && (
-              <button
-                type="button"
-                title="关闭批注浮窗"
-                onClick={() => setPinnedAnnotation(null)}
-              >
-                <X size={13} />
-              </button>
-            )}
-          </div>
-          <time>{formatTime(visibleTooltip.annotation.createdAt)}</time>
-          <span className="annotation-tooltip-author">
-            {visibleTooltip.annotation.authorName || 'Reader'}
-          </span>
-          <p>{getAnnotationPreview(visibleTooltip.annotation)}</p>
-        </div>
-      )}
-    </div>
-  )
 }
 
 function App(): JSX.Element {
