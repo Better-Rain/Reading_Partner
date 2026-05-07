@@ -60,6 +60,7 @@ import { useAnnotationUndo } from './hooks/useAnnotationUndo'
 import { useAIOperations } from './hooks/useAIOperations'
 import { useAIConversations } from './hooks/useAIConversations'
 import { useVocabularyActions } from './hooks/useVocabularyActions'
+import { useAnnotationActions } from './hooks/useAnnotationActions'
 import { getStoredReaderName, toPdfBlobUrl } from './readerLocalState'
 
 type PanelTab = InspectorTab
@@ -302,6 +303,30 @@ function App(): JSX.Element {
     setSelection,
     setStatus,
     setVocabulary
+  })
+  const {
+    createAnnotation,
+    deleteAnnotation,
+    updateAnnotation,
+    exportReadingMarks,
+    importReadingMarks
+  } = useAnnotationActions({
+    activeDocument,
+    annotations,
+    pageNumber,
+    readerName,
+    selectedAnnotationColor,
+    selectionText: selection?.text ?? null,
+    selectionRects: selection?.rects ?? [],
+    pushAnnotationUndo,
+    refreshAnnotations,
+    resetAnnotationUndoStack,
+    setAnnotations,
+    setDraftNote,
+    setIsSelectionNoteEditorOpen,
+    setSelectionNoteDraft,
+    setStatus,
+    clearSelection: () => setSelection(null)
   })
 
   const clearSearch = (): void => {
@@ -585,35 +610,6 @@ function App(): JSX.Element {
     setIsSelectionNoteEditorOpen(false)
   }
 
-  const createAnnotation = async (
-    type: AnnotationRecord['type'],
-    note?: string,
-    color = selectedAnnotationColor
-  ): Promise<void> => {
-    if (!activeDocument) {
-      return
-    }
-
-    const created = await window.readingPartner.createAnnotation({
-      documentId: activeDocument.id,
-      type,
-      pageNumber,
-      selectedText: selection?.text ?? null,
-      color: type === 'bookmark' ? null : color,
-      note: note ?? null,
-      rectsJson: type !== 'bookmark' && selection?.rects.length ? JSON.stringify(selection.rects) : null,
-      authorName: readerName.trim() || 'Reader'
-    })
-
-    setAnnotations((items) => [...items, created])
-    pushAnnotationUndo({ kind: 'create', annotation: created })
-    setSelection(null)
-    setSelectionNoteDraft('')
-    setIsSelectionNoteEditorOpen(false)
-    setDraftNote('')
-    setStatus(type === 'bookmark' ? '已添加书签' : '已保存批注')
-  }
-
   useReaderShortcuts({
     hasDocument: Boolean(activeDocument),
     hasSelection: Boolean(selection),
@@ -789,55 +785,6 @@ function App(): JSX.Element {
       message: trimmed,
       selectedText
     })
-  }
-
-  const deleteAnnotation = async (id: string): Promise<void> => {
-    const deleted = annotations.find((item) => item.id === id)
-    await window.readingPartner.deleteAnnotation(id)
-    setAnnotations((items) => items.filter((item) => item.id !== id))
-    if (deleted) {
-      pushAnnotationUndo({ kind: 'delete', annotation: deleted })
-    }
-  }
-
-  const updateAnnotation = async (id: string, note: string, color?: string | null): Promise<void> => {
-    const before = annotations.find((item) => item.id === id)
-    const updated = await window.readingPartner.updateAnnotation({
-      id,
-      note: note.trim() || null,
-      color
-    })
-    setAnnotations((items) => items.map((item) => (item.id === id ? updated : item)))
-    if (before) {
-      pushAnnotationUndo({ kind: 'update', before, after: updated })
-    }
-    setStatus('已更新批注')
-  }
-
-  const exportReadingMarks = async (): Promise<void> => {
-    if (!activeDocument) {
-      return
-    }
-
-    const result = await window.readingPartner.exportReadingMarksDialog(activeDocument.id)
-
-    if (result) {
-      setStatus(`已导出 ${result.annotationCount} 条阅读记录`)
-    }
-  }
-
-  const importReadingMarks = async (): Promise<void> => {
-    if (!activeDocument) {
-      return
-    }
-
-    const result = await window.readingPartner.importReadingMarksDialog(activeDocument.id)
-
-    if (result) {
-      await refreshAnnotations(activeDocument.id)
-      resetAnnotationUndoStack()
-      setStatus(`已导入 ${result.annotationCount} 条阅读记录`)
-    }
   }
 
   const defineVocabularyWithAI = async (item: VocabularyRecord): Promise<void> => {
