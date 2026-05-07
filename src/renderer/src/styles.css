@@ -193,6 +193,7 @@ button {
 
 .document-list {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   gap: 8px;
 }
@@ -200,6 +201,7 @@ button {
 .document-item {
   display: flex;
   width: 100%;
+  min-width: 0;
   flex-direction: column;
   gap: 5px;
   padding: 10px;
@@ -216,10 +218,20 @@ button {
 }
 
 .document-item span {
+  display: block;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 700;
+}
+
+.document-item small {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .document-item small,
@@ -449,6 +461,12 @@ button:disabled {
   background: #fff;
   box-shadow: 0 14px 36px rgba(22, 34, 51, 0.18);
   overflow: visible;
+}
+
+.pdf-page-visual {
+  position: relative;
+  transform-origin: top left;
+  will-change: transform;
 }
 
 .react-pdf__Page {

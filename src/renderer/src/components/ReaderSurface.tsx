@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import type { RefObject, MouseEvent as ReactMouseEvent, WheelEvent } from 'react'
 import type { Source } from 'react-pdf/dist/shared/types.js'
 import { Document, Page } from 'react-pdf'
@@ -32,6 +33,11 @@ type ReaderSurfaceProps = {
   onWheel: (event: WheelEvent<HTMLDivElement>) => void
 }
 
+type PdfDocumentLike = {
+  numPages: number
+  getPage: (pageNumber: number) => Promise<unknown>
+}
+
 export function ReaderSurface({
   annotations,
   file,
@@ -54,6 +60,47 @@ export function ReaderSurface({
   onStopPan,
   onWheel
 }: ReaderSurfaceProps): JSX.Element {
+  const [renderScale, setRenderScale] = useState(scale)
+  const [pdfDocument, setPdfDocument] = useState<PdfDocumentLike | null>(null)
+  const pageCacheRef = useRef(new Set<string>())
+  const visualScale = scale / renderScale
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setRenderScale(scale)
+    }, 140)
+
+    return () => window.clearTimeout(timeout)
+  }, [scale])
+
+  useEffect(() => {
+    setPdfDocument(null)
+    pageCacheRef.current.clear()
+    setRenderScale(scale)
+  }, [file])
+
+  useEffect(() => {
+    if (!pdfDocument) {
+      return
+    }
+
+    for (const nextPageNumber of [pageNumber - 1, pageNumber, pageNumber + 1]) {
+      if (nextPageNumber < 1 || nextPageNumber > pdfDocument.numPages) {
+        continue
+      }
+
+      const cacheKey = `${pdfDocument.numPages}:${nextPageNumber}`
+      if (pageCacheRef.current.has(cacheKey)) {
+        continue
+      }
+
+      pageCacheRef.current.add(cacheKey)
+      void pdfDocument.getPage(nextPageNumber).catch(() => {
+        pageCacheRef.current.delete(cacheKey)
+      })
+    }
+  }, [pageNumber, pdfDocument])
+
   return (
     <div
       className={['reader-surface', isPanMode ? 'pan-enabled' : '', isPanning ? 'is-panning' : '']
@@ -87,24 +134,34 @@ export function ReaderSurface({
             }
             loading={<div className="empty-state">正在解析 PDF...</div>}
             onLoadError={(error) => onDocumentLoadError(error.message)}
-            onLoadSuccess={({ numPages }) => onDocumentLoadSuccess(numPages)}
+            onLoadSuccess={(document) => {
+              setPdfDocument(document as PdfDocumentLike)
+              onDocumentLoadSuccess(document.numPages)
+            }}
             onSourceError={(error) => onDocumentSourceError(error.message)}
           >
             <div className="pdf-page-frame">
-              <Page
-                pageNumber={pageNumber}
-                renderAnnotationLayer
-                renderTextLayer
-                scale={scale}
-                onLoadError={(error) => onPageLoadError(error.message)}
-                onRenderSuccess={onPageRenderSuccess}
-              />
-              <AnnotationOverlay
-                annotations={annotations}
-                interactionMode={interactionMode}
-                scale={scale}
-                temporaryHighlight={temporaryHighlight}
-              />
+              <div
+                className="pdf-page-visual"
+                style={{
+                  transform: visualScale === 1 ? undefined : `scale(${visualScale})`
+                }}
+              >
+                <Page
+                  pageNumber={pageNumber}
+                  renderAnnotationLayer
+                  renderTextLayer
+                  scale={renderScale}
+                  onLoadError={(error) => onPageLoadError(error.message)}
+                  onRenderSuccess={onPageRenderSuccess}
+                />
+                <AnnotationOverlay
+                  annotations={annotations}
+                  interactionMode={interactionMode}
+                  scale={renderScale}
+                  temporaryHighlight={temporaryHighlight}
+                />
+              </div>
             </div>
           </Document>
         </div>

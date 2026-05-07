@@ -115,6 +115,7 @@ function App(): JSX.Element {
   const readerSurfaceRef = useRef<HTMLDivElement | null>(null)
   const panStateRef = useRef<PanState | null>(null)
   const suppressSelectionRef = useRef(false)
+  const loadedPdfRef = useRef<{ documentId: string | null; pageCount: number } | null>(null)
   const { requestReaderViewportReset, resetReaderViewportAfterRender } =
     useReaderViewportReset(readerSurfaceRef)
 
@@ -376,6 +377,7 @@ function App(): JSX.Element {
   const loadDocument = async (document: DocumentRecord): Promise<void> => {
     setStatus(`正在打开 ${document.title}`)
     setPdfError(null)
+    loadedPdfRef.current = null
     const data = await window.readingPartner.readPdf(document.id)
     const nextUrl = toPdfBlobUrl(data)
     setActiveDocument(document)
@@ -414,6 +416,7 @@ function App(): JSX.Element {
 
     const nextUrl = toPdfBlobUrl(result.data)
     setPdfError(null)
+    loadedPdfRef.current = null
     setActiveDocument(result.document)
     requestReaderViewportReset()
     setPdfUrl((currentUrl) => {
@@ -644,8 +647,21 @@ function App(): JSX.Element {
             setStatus(`PDF 打开失败：${message}`)
           }}
           onDocumentLoadSuccess={(numPages) => {
-            setPdfError(null)
-            setPageCount(numPages)
+            const documentId = activeDocument?.id ?? null
+            const previousLoad = loadedPdfRef.current
+            const isSamePdfLoad =
+              previousLoad?.documentId === documentId && previousLoad.pageCount === numPages
+
+            if (pdfError) {
+              setPdfError(null)
+            }
+            setPageCount((current) => (current === numPages ? current : numPages))
+
+            if (isSamePdfLoad) {
+              return
+            }
+
+            loadedPdfRef.current = { documentId, pageCount: numPages }
             setStatus(`共 ${numPages} 页`)
             if (activeDocument) {
               void ensureDocumentTextIndex(activeDocument, numPages)

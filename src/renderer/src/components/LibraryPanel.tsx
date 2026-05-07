@@ -56,6 +56,7 @@ export function LibraryPanel({
                 className={document.id === activeDocumentId ? 'document-item active' : 'document-item'}
                 key={document.id}
                 onClick={() => onLoadDocument(document)}
+                title={document.title}
               >
                 <span>{document.title}</span>
                 <small>
