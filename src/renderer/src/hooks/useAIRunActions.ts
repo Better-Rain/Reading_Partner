@@ -104,6 +104,7 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
       setStatus,
       setVocabulary
     } = contextRef.current
+    const currentRun = aiRunRef.current
 
     if (event.type === 'error') {
       setAiRun((current) =>
@@ -111,6 +112,16 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
           ? { ...current, status: 'error', error: event.message }
           : current
       )
+      if (
+        currentRun?.source === 'chat' &&
+        currentRun.conversationId &&
+        contextRef.current.activeDocument
+      ) {
+        await refreshAIConversationAfterRun(
+          currentRun.conversationId,
+          contextRef.current.activeDocument.id
+        )
+      }
       setStatus(`AI 调用失败：${event.message}`)
       return
     }
@@ -121,11 +132,20 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
           ? { ...current, status: 'cancelled', error: null }
           : current
       )
-      setStatus('已取消 AI 请求')
+      if (
+        currentRun?.source === 'chat' &&
+        currentRun.conversationId &&
+        contextRef.current.activeDocument
+      ) {
+        await refreshAIConversationAfterRun(
+          currentRun.conversationId,
+          contextRef.current.activeDocument.id
+        )
+      }
+      setStatus(currentRun?.source === 'chat' ? '已停止 AI 输出' : '已取消 AI 请求')
       return
     }
 
-    const currentRun = aiRunRef.current
     const {
       displayOutput,
       annotations: assistedAnnotationDrafts
@@ -297,7 +317,7 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
         ? { ...current, status: 'cancelled', error: null }
         : current
     )
-    setStatus('已取消 AI 请求')
+    setStatus(currentRun.source === 'chat' ? '已停止 AI 输出' : '已取消 AI 请求')
   }
 
   const askDocumentQuestion = async (question: string): Promise<void> => {
@@ -445,6 +465,84 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
     })
   }
 
+  const resendChatMessage = async (message: AIChatMessageRecord): Promise<void> => {
+    const {
+      activeConversation,
+      activeDocument,
+      appendOptimisticChatMessage,
+      pageNumber,
+      readyProvider,
+      setActiveTab,
+      setIsChatDrawerOpen,
+      setStatus
+    } = contextRef.current
+
+    if (!activeDocument || message.role !== 'user') {
+      return
+    }
+
+    if (!readyProvider) {
+      setActiveTab('settings')
+      setStatus('请先在配置面板为至少一个启用的 Provider 保存 API Key')
+      return
+    }
+
+    if (!activeConversation || activeConversation.id !== message.conversationId) {
+      setStatus('请先打开要继续的共读对话')
+      return
+    }
+
+    const trimmed = message.content.trim()
+
+    if (!trimmed) {
+      return
+    }
+
+    const requestId = crypto.randomUUID()
+    const replayPageNumber = message.pageNumber ?? pageNumber
+    const selectedText = message.selectedText ?? null
+    const optimisticMessage: AIChatMessageRecord = {
+      id: `pending:${requestId}`,
+      conversationId: activeConversation.id,
+      role: 'user',
+      content: trimmed,
+      selectedText,
+      pageNumber: replayPageNumber,
+      providerId: null,
+      model: null,
+      artifactId: null,
+      createdAt: new Date().toISOString()
+    }
+
+    appendOptimisticChatMessage(optimisticMessage)
+    setIsChatDrawerOpen(true)
+    setAiRun({
+      requestId,
+      promptType: 'chat_document',
+      inputText: trimmed,
+      providerLabel: readyProvider.label,
+      model: readyProvider.defaultModel,
+      output: '',
+      reasoningOutput: '',
+      status: 'running',
+      error: null,
+      source: 'chat',
+      conversationId: activeConversation.id
+    })
+    setActiveTab('ai')
+    setStatus(`正在使用 ${readyProvider.label} 重新发送共读对话`)
+
+    await window.readingPartner.runAIChat({
+      requestId,
+      providerId: readyProvider.id,
+      conversationId: activeConversation.id,
+      documentId: activeDocument.id,
+      pageNumber: replayPageNumber,
+      message: trimmed,
+      selectedText
+    })
+  }
+
   const defineVocabularyWithAI = async (item: VocabularyRecord): Promise<void> => {
     const { activeDocument, pageNumber, readyProvider, setActiveTab, setStatus } = contextRef.current
 
@@ -498,6 +596,7 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
     askDocumentQuestion,
     cancelCurrentAIRun,
     defineVocabularyWithAI,
+    resendChatMessage,
     runAIAction,
     sendChatMessage
   }

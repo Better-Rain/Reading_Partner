@@ -1726,6 +1726,11 @@ button:disabled {
   font-size: 13px;
 }
 
+.chat-message-action {
+  float: right;
+  margin: -2px 0 6px 8px;
+}
+
 .chat-message p {
   margin: 6px 0 0;
   color: #263447;

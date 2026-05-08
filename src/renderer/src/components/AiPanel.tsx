@@ -4,7 +4,9 @@ import {
   Check,
   ChevronLeft,
   Pencil,
+  RotateCcw,
   Send,
+  Square,
   Undo2,
   X
 } from 'lucide-react'
@@ -108,6 +110,7 @@ export function AiPanel({
   onQuestionChange,
   onRun,
   onRevertAIOperation,
+  onResendChatMessage,
   onSelectConversation,
   onSendChat,
   onUpdateConversationTitle
@@ -117,6 +120,7 @@ export function AiPanel({
   const canSendChat =
     hasDocument && Boolean(readyProvider) && chatDraft.trim().length > 0 && aiRun?.status !== 'running'
   const activeChatRunning = aiRun?.source === 'chat' && aiRun.status === 'running'
+  const canResendChat = hasDocument && Boolean(readyProvider) && aiRun?.status !== 'running'
   const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId)
   const isCreatingConversation = isConversationOpen && activeConversationId === null
   const visibleOperations = aiOperations.filter((operation) =>
@@ -247,6 +251,17 @@ export function AiPanel({
             chatMessages.map((message) => (
               <article className={`chat-message ${message.role}`} key={message.id}>
                 <strong>{message.role === 'user' ? '你' : 'Reading Partner'}</strong>
+                {message.role === 'user' && (
+                  <button
+                    className="text-button neutral chat-message-action"
+                    disabled={!canResendChat}
+                    type="button"
+                    onClick={() => onResendChatMessage(message)}
+                  >
+                    <RotateCcw size={13} />
+                    重新发送
+                  </button>
+                )}
                 {message.selectedText && <blockquote>{message.selectedText}</blockquote>}
                 <MarkdownContent text={message.content} />
               </article>
@@ -255,6 +270,10 @@ export function AiPanel({
           {activeChatRunning && (
             <article className="chat-message assistant">
               <strong>Reading Partner</strong>
+              <button className="text-button chat-message-action" type="button" onClick={onCancelRun}>
+                <Square size={13} />
+                停止输出
+              </button>
               <MarkdownContent
                 text={composeAIOutputWithReasoning(
                   aiRun.output || '正在思考...',
