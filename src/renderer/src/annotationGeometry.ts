@@ -16,6 +16,52 @@ const rectOverlapArea = (first: AnnotationRect, second: AnnotationRect): number 
   return Math.max(0, right - left) * Math.max(0, bottom - top)
 }
 
+const verticalOverlapRatio = (first: AnnotationRect, second: AnnotationRect): number => {
+  const top = Math.max(first.top, second.top)
+  const bottom = Math.min(first.top + first.height, second.top + second.height)
+  const overlap = Math.max(0, bottom - top)
+  const shorterHeight = Math.min(first.height, second.height)
+
+  return shorterHeight > 0 ? overlap / shorterHeight : 0
+}
+
+const mergeLineRects = (rects: AnnotationRect[]): AnnotationRect[] => {
+  const merged: AnnotationRect[] = []
+
+  for (const rect of rects) {
+    const previous = merged.at(-1)
+
+    if (!previous) {
+      merged.push(rect)
+      continue
+    }
+
+    const averageHeight = (previous.height + rect.height) / 2
+    const gap = rect.left - (previous.left + previous.width)
+    const sameLine = verticalOverlapRatio(previous, rect) >= 0.62
+    const closeEnough = gap <= Math.max(4, Math.min(18, averageHeight * 0.8))
+
+    if (sameLine && closeEnough) {
+      const left = Math.min(previous.left, rect.left)
+      const top = Math.min(previous.top, rect.top)
+      const right = Math.max(previous.left + previous.width, rect.left + rect.width)
+      const bottom = Math.max(previous.top + previous.height, rect.top + rect.height)
+
+      merged[merged.length - 1] = {
+        left,
+        top,
+        width: right - left,
+        height: bottom - top
+      }
+      continue
+    }
+
+    merged.push(rect)
+  }
+
+  return merged
+}
+
 export const normalizeAnnotationRects = (rects: AnnotationRect[]): AnnotationRect[] => {
   const sorted = [...rects].sort((first, second) => {
     const topDelta = first.top - second.top
@@ -33,7 +79,7 @@ export const normalizeAnnotationRects = (rects: AnnotationRect[]): AnnotationRec
     return first.left - second.left
   })
 
-  return sorted.filter((rect, index) => {
+  const visibleRects = sorted.filter((rect, index) => {
     const area = rectArea(rect)
 
     if (area <= 0) {
@@ -60,4 +106,16 @@ export const normalizeAnnotationRects = (rects: AnnotationRect[]): AnnotationRec
       return overlap / area >= 0.82
     })
   })
+
+  return mergeLineRects(
+    visibleRects.sort((first, second) => {
+      const topDelta = first.top - second.top
+
+      if (Math.abs(topDelta) > 1) {
+        return topDelta
+      }
+
+      return first.left - second.left
+    })
+  )
 }
