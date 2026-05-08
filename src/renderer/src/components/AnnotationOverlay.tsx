@@ -207,14 +207,21 @@ export function AnnotationOverlay({
     >
       {visualItems.flatMap(({ annotation, rects }) =>
         rects.map((rect, rectIndex) => {
+          const isVocabulary = Boolean(annotation.vocabularyId)
           const verticalInset = annotation.type === 'highlight' ? Math.min(3, rect.height * scale * 0.18) : 0
+          const top = isVocabulary
+            ? rect.top * scale + Math.max(2, rect.height * scale - 3)
+            : rect.top * scale + verticalInset
+          const height = isVocabulary ? 3 : Math.max(2, rect.height * scale - verticalInset * 2)
           const style: CSSProperties = {
             left: rect.left * scale,
-            top: rect.top * scale + verticalInset,
+            top,
             width: rect.width * scale,
-            height: Math.max(2, rect.height * scale - verticalInset * 2),
+            height,
             backgroundColor:
-              annotation.type === 'highlight'
+              isVocabulary
+                ? 'transparent'
+                : annotation.type === 'highlight'
                 ? hexToRgba(annotation.color, 0.44)
                 : hexToRgba(annotation.color ?? '#6aa7f8', 0.24),
             borderColor: annotation.color ?? (annotation.type === 'note' ? '#3f7fc8' : '#d6ad22')
@@ -222,7 +229,7 @@ export function AnnotationOverlay({
 
           return (
             <span
-              className={`pdf-annotation-rect is-${annotation.type}`}
+              className={`pdf-annotation-rect is-${annotation.type}${isVocabulary ? ' is-vocabulary' : ''}`}
               key={`${annotation.id}-${rectIndex}`}
               onMouseEnter={(event) => showTooltip(annotation, event)}
               onMouseMove={(event) => showTooltip(annotation, event)}
@@ -235,7 +242,7 @@ export function AnnotationOverlay({
       )}
 
       {visualItems
-        .filter(({ annotation, rects }) => annotation.type === 'note' && rects.length > 0)
+        .filter(({ annotation, rects }) => annotation.type === 'note' && !annotation.vocabularyId && rects.length > 0)
         .map(({ annotation, rects }) => {
           const firstRect = rects[0]
 
@@ -296,7 +303,9 @@ export function AnnotationOverlay({
         >
           <div className="pdf-annotation-tooltip-heading">
             <strong>
-              {visibleTooltip.annotation.type === 'highlight'
+              {visibleTooltip.annotation.vocabularyId
+                ? '生词'
+                : visibleTooltip.annotation.type === 'highlight'
                 ? '高亮'
                 : visibleTooltip.annotation.type === 'note'
                   ? '批注'

@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react'
-import type { AnnotationRecord, DocumentRecord } from '../../../shared/types'
+import type { AnnotationRecord, DocumentRecord, VocabularyRecord } from '../../../shared/types'
 import type { AnnotationRect } from '../annotationGeometry'
 import type { AnnotationUndoAction } from './useAnnotationUndo'
 
@@ -19,6 +19,7 @@ type UseAnnotationActionsParams = {
   setIsSelectionNoteEditorOpen: Dispatch<SetStateAction<boolean>>
   setSelectionNoteDraft: Dispatch<SetStateAction<string>>
   setStatus: Dispatch<SetStateAction<string>>
+  setVocabulary: Dispatch<SetStateAction<VocabularyRecord[]>>
   clearSelection: () => void
 }
 
@@ -38,6 +39,7 @@ export const useAnnotationActions = ({
   setIsSelectionNoteEditorOpen,
   setSelectionNoteDraft,
   setStatus,
+  setVocabulary,
   clearSelection
 }: UseAnnotationActionsParams): {
   createAnnotation: (
@@ -83,7 +85,12 @@ export const useAnnotationActions = ({
     const deleted = annotations.find((item) => item.id === id)
     await window.readingPartner.deleteAnnotation(id)
     setAnnotations((items) => items.filter((item) => item.id !== id))
-    if (deleted) {
+    setVocabulary((items) =>
+      items.filter(
+        (item) => item.annotationId !== id && (!deleted?.vocabularyId || item.id !== deleted.vocabularyId)
+      )
+    )
+    if (deleted && !deleted.vocabularyId) {
       pushAnnotationUndo({ kind: 'delete', annotation: deleted })
     }
   }

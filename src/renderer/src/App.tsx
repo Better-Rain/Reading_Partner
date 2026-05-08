@@ -76,6 +76,19 @@ const clampScale = (value: number): number =>
 
 const roundRectValue = (value: number): number => Number(value.toFixed(2))
 
+const clampPageNumber = (value: number, pageLimit?: number | null): number => {
+  const normalized = Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 1
+  const limit =
+    typeof pageLimit === 'number' && Number.isFinite(pageLimit) && pageLimit > 0
+      ? Math.floor(pageLimit)
+      : null
+
+  return limit ? Math.min(normalized, limit) : normalized
+}
+
+const getInitialPageNumber = (document: DocumentRecord): number =>
+  clampPageNumber(document.lastPageNumber, document.pageCount)
+
 
 function App(): JSX.Element {
   const [documents, setDocuments] = useState<DocumentRecord[]>([])
@@ -186,7 +199,12 @@ function App(): JSX.Element {
   }, [pdfUrl])
 
   useEffect(() => {
-    if (!activeDocument || pageNumber < 1) {
+    if (
+      !activeDocument ||
+      !Number.isFinite(pageNumber) ||
+      pageNumber < 1 ||
+      (pageCount > 0 && pageNumber > pageCount)
+    ) {
       return
     }
 
@@ -205,7 +223,7 @@ function App(): JSX.Element {
     }, 350)
 
     return () => window.clearTimeout(timeout)
-  }, [activeDocument?.id, pageNumber])
+  }, [activeDocument?.id, pageCount, pageNumber])
 
   const refreshLibrary = async (): Promise<void> => {
     const list = await window.readingPartner.listDocuments()
@@ -300,7 +318,6 @@ function App(): JSX.Element {
     selectionRects: selection?.rects ?? [],
     selectionText: selection?.text ?? null,
     vocabulary,
-    pushAnnotationUndo,
     refreshDictionarySources,
     setActiveTab,
     setAnnotations,
@@ -330,6 +347,7 @@ function App(): JSX.Element {
     setIsSelectionNoteEditorOpen,
     setSelectionNoteDraft,
     setStatus,
+    setVocabulary,
     clearSelection: () => setSelection(null)
   })
   const {
@@ -407,7 +425,7 @@ function App(): JSX.Element {
     loadedPdfRef.current = null
     const data = await window.readingPartner.readPdf(document.id)
     const nextUrl = toPdfBlobUrl(data)
-    const initialPageNumber = Math.max(1, document.lastPageNumber)
+    const initialPageNumber = getInitialPageNumber(document)
     setActiveDocument(document)
     requestReaderViewportReset()
     setPdfUrl((currentUrl) => {
@@ -445,7 +463,7 @@ function App(): JSX.Element {
     const nextUrl = toPdfBlobUrl(result.data)
     setPdfError(null)
     loadedPdfRef.current = null
-    const initialPageNumber = Math.max(1, result.document.lastPageNumber)
+    const initialPageNumber = getInitialPageNumber(result.document)
     setActiveDocument(result.document)
     requestReaderViewportReset()
     setPdfUrl((currentUrl) => {
@@ -676,28 +694,31 @@ function App(): JSX.Element {
             setStatus(`PDF 打开失败：${message}`)
           }}
           onDocumentLoadSuccess={(numPages) => {
+            const safePageCount = Number.isFinite(numPages) && numPages > 0 ? Math.floor(numPages) : 1
             const documentId = activeDocument?.id ?? null
             const previousLoad = loadedPdfRef.current
             const isSamePdfLoad =
-              previousLoad?.documentId === documentId && previousLoad.pageCount === numPages
+              previousLoad?.documentId === documentId && previousLoad.pageCount === safePageCount
 
             if (pdfError) {
               setPdfError(null)
             }
-            setPageCount((current) => (current === numPages ? current : numPages))
+            setPageCount((current) => (current === safePageCount ? current : safePageCount))
+
+            const normalizedPageNumber = clampPageNumber(pageNumber, safePageCount)
+            if (normalizedPageNumber !== pageNumber) {
+              requestReaderViewportReset()
+              setPageNumber(normalizedPageNumber)
+            }
 
             if (isSamePdfLoad) {
               return
             }
 
-            loadedPdfRef.current = { documentId, pageCount: numPages }
-            if (pageNumber > numPages) {
-              requestReaderViewportReset()
-              setPageNumber(numPages)
-            }
-            setStatus(`共 ${numPages} 页`)
+            loadedPdfRef.current = { documentId, pageCount: safePageCount }
+            setStatus(`共 ${safePageCount} 页`)
             if (activeDocument) {
-              void ensureDocumentTextIndex(activeDocument, numPages)
+              void ensureDocumentTextIndex(activeDocument, safePageCount)
             }
           }}
           onDocumentSourceError={(message) => {

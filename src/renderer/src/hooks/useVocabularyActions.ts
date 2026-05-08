@@ -8,7 +8,6 @@ import type {
 import type { AnnotationRect } from '../annotationGeometry'
 import type { InspectorTab } from '../components/InspectorTabBar'
 import { makeDefinitionFromDictionary } from '../vocabularyUtils'
-import type { AnnotationUndoAction } from './useAnnotationUndo'
 
 type UseVocabularyActionsParams = {
   activeDocument: DocumentRecord | null
@@ -18,7 +17,6 @@ type UseVocabularyActionsParams = {
   selectionRects: AnnotationRect[]
   selectionText: string | null
   vocabulary: VocabularyRecord[]
-  pushAnnotationUndo: (action: AnnotationUndoAction) => void
   refreshDictionarySources: () => Promise<void>
   setActiveTab: Dispatch<SetStateAction<InspectorTab>>
   setAnnotations: Dispatch<SetStateAction<AnnotationRecord[]>>
@@ -35,7 +33,6 @@ export const useVocabularyActions = ({
   selectionRects,
   selectionText,
   vocabulary,
-  pushAnnotationUndo,
   refreshDictionarySources,
   setActiveTab,
   setAnnotations,
@@ -65,7 +62,6 @@ export const useVocabularyActions = ({
         pageNumber
       })
 
-      setVocabulary((items) => [created, ...items])
       try {
         const annotation = await window.readingPartner.createAnnotation({
           documentId: activeDocument.id,
@@ -75,13 +71,16 @@ export const useVocabularyActions = ({
           color: selectedAnnotationColor,
           note: `生词：${word}\n\n释义：${definition}`,
           rectsJson: selectionRects.length ? JSON.stringify(selectionRects) : null,
+          vocabularyId: created.id,
           authorName: readerName.trim() || 'Reader'
         })
+        const linked = await window.readingPartner.linkVocabularyAnnotation(created.id, annotation.id)
 
+        setVocabulary((items) => [linked, ...items])
         setAnnotations((items) => [...items, annotation])
-        pushAnnotationUndo({ kind: 'create', annotation })
       } catch (error) {
         console.error('Failed to create vocabulary annotation', error)
+        setVocabulary((items) => [created, ...items])
         setSelection(null)
         setActiveTab('vocab')
         setStatus(
@@ -147,9 +146,16 @@ export const useVocabularyActions = ({
   }
 
   const deleteVocabulary = async (id: string): Promise<void> => {
+    const deleted = vocabulary.find((item) => item.id === id)
+
     try {
       await window.readingPartner.deleteVocabulary(id)
       setVocabulary((items) => items.filter((item) => item.id !== id))
+      setAnnotations((items) =>
+        items.filter(
+          (item) => item.vocabularyId !== id && (!deleted?.annotationId || item.id !== deleted.annotationId)
+        )
+      )
       setStatus('已删除词汇')
     } catch (error) {
       setStatus(`删除词汇失败：${error instanceof Error ? error.message : String(error)}`)

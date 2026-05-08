@@ -52,6 +52,7 @@ type AnnotationRow = {
   color: string | null
   note: string | null
   rects_json: string | null
+  vocabulary_id: string | null
   author_name: string
   created_at: string
   updated_at: string
@@ -106,6 +107,7 @@ type AIChatMessageRow = {
 type VocabularyRow = {
   id: string
   document_id: string | null
+  annotation_id: string | null
   word: string
   definition: string
   source_sentence: string | null
@@ -180,6 +182,7 @@ const toAnnotation = (row: AnnotationRow): AnnotationRecord => ({
   color: row.color,
   note: row.note,
   rectsJson: row.rects_json,
+  vocabularyId: row.vocabulary_id,
   authorName: row.author_name || 'Reader',
   createdAt: row.created_at,
   updatedAt: row.updated_at
@@ -234,6 +237,7 @@ const toAIChatMessage = (row: AIChatMessageRow): AIChatMessageRecord => ({
 const toVocabulary = (row: VocabularyRow): VocabularyRecord => ({
   id: row.id,
   documentId: row.document_id,
+  annotationId: row.annotation_id,
   word: row.word,
   definition: row.definition,
   sourceSentence: row.source_sentence,
@@ -414,9 +418,13 @@ export class ReadingPartnerDatabase {
   }
 
   saveDocumentProgress(documentId: string, pageNumber: number): DocumentRecord {
-    const safePageNumber = Math.max(1, Math.floor(pageNumber))
+    const document = this.getDocument(documentId)
+    const normalizedPageNumber = Number.isFinite(pageNumber) ? Math.max(1, Math.floor(pageNumber)) : 1
+    const safePageNumber =
+      typeof document.pageCount === 'number' && document.pageCount > 0
+        ? Math.min(normalizedPageNumber, document.pageCount)
+        : normalizedPageNumber
     const timestamp = now()
-    this.getDocument(documentId)
     this.db.run(
       `update documents
        set last_page_number = ?,
@@ -674,8 +682,8 @@ export class ReadingPartnerDatabase {
 
     this.db.run(
       `insert into annotations (
-          id, document_id, type, page_number, selected_text, color, note, rects_json, author_name, created_at, updated_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          id, document_id, type, page_number, selected_text, color, note, rects_json, vocabulary_id, author_name, created_at, updated_at
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         input.documentId,
@@ -685,6 +693,7 @@ export class ReadingPartnerDatabase {
         input.color ?? null,
         input.note ?? null,
         input.rectsJson ?? null,
+        input.vocabularyId ?? null,
         authorName,
         timestamp,
         timestamp
@@ -729,16 +738,39 @@ export class ReadingPartnerDatabase {
   }
 
   deleteAnnotation(id: string): void {
-    this.db.run('delete from annotations where id = ?', [id])
-    this.persist()
+    const annotation = this.get<AnnotationRow>('select * from annotations where id = ?', [id])
+    const linkedVocabularyIds = new Set<string>()
+
+    if (annotation?.vocabulary_id) {
+      linkedVocabularyIds.add(annotation.vocabulary_id)
+    }
+
+    this.query<{ id: string }>('select id from vocabulary where annotation_id = ?', [id]).forEach((row) =>
+      linkedVocabularyIds.add(row.id)
+    )
+
+    this.db.run('begin transaction')
+
+    try {
+      for (const vocabularyId of linkedVocabularyIds) {
+        this.db.run('delete from vocabulary where id = ?', [vocabularyId])
+      }
+
+      this.db.run('delete from annotations where id = ?', [id])
+      this.db.run('commit')
+      this.persist()
+    } catch (error) {
+      this.db.run('rollback')
+      throw error
+    }
   }
 
   restoreAnnotation(annotation: AnnotationRecord): AnnotationRecord {
     this.getDocument(annotation.documentId)
     this.db.run(
       `insert into annotations (
-          id, document_id, type, page_number, selected_text, color, note, rects_json, author_name, created_at, updated_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          id, document_id, type, page_number, selected_text, color, note, rects_json, vocabulary_id, author_name, created_at, updated_at
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         on conflict(id) do update set
           document_id = excluded.document_id,
           type = excluded.type,
@@ -747,6 +779,7 @@ export class ReadingPartnerDatabase {
           color = excluded.color,
           note = excluded.note,
           rects_json = excluded.rects_json,
+          vocabulary_id = excluded.vocabulary_id,
           author_name = excluded.author_name,
           created_at = excluded.created_at,
           updated_at = excluded.updated_at`,
@@ -759,6 +792,7 @@ export class ReadingPartnerDatabase {
         annotation.color,
         annotation.note,
         annotation.rectsJson,
+        annotation.vocabularyId,
         annotation.authorName || 'Reader',
         annotation.createdAt,
         annotation.updatedAt
@@ -778,7 +812,7 @@ export class ReadingPartnerDatabase {
     const document = this.getDocument(documentId)
     const annotations = this.listAnnotations(documentId)
       .filter((annotation) => annotation.authorName !== 'AI' && !annotation.note?.trim().startsWith('AI '))
-      .map(({ documentId: _documentId, ...annotation }) => annotation)
+      .map(({ documentId: _documentId, vocabularyId: _vocabularyId, ...annotation }) => annotation)
 
     return {
       version: 1 as const,
@@ -827,8 +861,8 @@ export class ReadingPartnerDatabase {
 
         this.db.run(
           `insert into annotations (
-              id, document_id, type, page_number, selected_text, color, note, rects_json, author_name, created_at, updated_at
-            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              id, document_id, type, page_number, selected_text, color, note, rects_json, vocabulary_id, author_name, created_at, updated_at
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             on conflict(id) do update set
               document_id = excluded.document_id,
               type = excluded.type,
@@ -837,6 +871,7 @@ export class ReadingPartnerDatabase {
               color = excluded.color,
               note = excluded.note,
               rects_json = excluded.rects_json,
+              vocabulary_id = excluded.vocabulary_id,
               author_name = excluded.author_name,
               created_at = excluded.created_at,
               updated_at = excluded.updated_at`,
@@ -849,6 +884,7 @@ export class ReadingPartnerDatabase {
             annotation.color ?? null,
             annotation.note ?? null,
             annotation.rectsJson ?? null,
+            null,
             annotation.authorName?.trim() || 'Reader',
             createdAt,
             updatedAt
@@ -897,11 +933,12 @@ export class ReadingPartnerDatabase {
 
     this.db.run(
       `insert into vocabulary (
-        id, document_id, word, definition, source_sentence, page_number, created_at
-      ) values (?, ?, ?, ?, ?, ?, ?)`,
+        id, document_id, annotation_id, word, definition, source_sentence, page_number, created_at
+      ) values (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         input.documentId ?? null,
+        input.annotationId ?? null,
         word,
         definition,
         input.sourceSentence ?? null,
@@ -917,6 +954,64 @@ export class ReadingPartnerDatabase {
     }
 
     return toVocabulary(row)
+  }
+
+  linkVocabularyAnnotation(vocabularyId: string, annotationId: string): VocabularyRecord {
+    const vocabulary = this.get<VocabularyRow>('select * from vocabulary where id = ?', [vocabularyId])
+    const annotation = this.get<AnnotationRow>('select * from annotations where id = ?', [annotationId])
+
+    if (!vocabulary) {
+      throw new Error(`Vocabulary item not found: ${vocabularyId}`)
+    }
+
+    if (!annotation) {
+      throw new Error(`Annotation not found: ${annotationId}`)
+    }
+
+    if (
+      vocabulary.document_id &&
+      annotation.document_id &&
+      vocabulary.document_id !== annotation.document_id
+    ) {
+      throw new Error('Vocabulary item and annotation belong to different documents.')
+    }
+
+    this.db.run('begin transaction')
+
+    try {
+      if (vocabulary.annotation_id && vocabulary.annotation_id !== annotationId) {
+        this.db.run('update annotations set vocabulary_id = null where id = ?', [
+          vocabulary.annotation_id
+        ])
+      }
+
+      if (annotation.vocabulary_id && annotation.vocabulary_id !== vocabularyId) {
+        this.db.run('update vocabulary set annotation_id = null where id = ?', [
+          annotation.vocabulary_id
+        ])
+      }
+
+      this.db.run('update vocabulary set annotation_id = ? where id = ?', [
+        annotationId,
+        vocabularyId
+      ])
+      this.db.run('update annotations set vocabulary_id = ? where id = ?', [
+        vocabularyId,
+        annotationId
+      ])
+      this.db.run('commit')
+      this.persist()
+    } catch (error) {
+      this.db.run('rollback')
+      throw error
+    }
+
+    const updated = this.get<VocabularyRow>('select * from vocabulary where id = ?', [vocabularyId])
+    if (!updated) {
+      throw new Error(`Vocabulary item not found after linking: ${vocabularyId}`)
+    }
+
+    return toVocabulary(updated)
   }
 
   updateVocabularyDefinition(input: UpdateVocabularyDefinitionInput): VocabularyRecord {
@@ -938,8 +1033,31 @@ export class ReadingPartnerDatabase {
   }
 
   deleteVocabulary(id: string): void {
-    this.db.run('delete from vocabulary where id = ?', [id])
-    this.persist()
+    const vocabulary = this.get<VocabularyRow>('select * from vocabulary where id = ?', [id])
+    const linkedAnnotationIds = new Set<string>()
+
+    if (vocabulary?.annotation_id) {
+      linkedAnnotationIds.add(vocabulary.annotation_id)
+    }
+
+    this.query<{ id: string }>('select id from annotations where vocabulary_id = ?', [id]).forEach((row) =>
+      linkedAnnotationIds.add(row.id)
+    )
+
+    this.db.run('begin transaction')
+
+    try {
+      for (const annotationId of linkedAnnotationIds) {
+        this.db.run('delete from annotations where id = ?', [annotationId])
+      }
+
+      this.db.run('delete from vocabulary where id = ?', [id])
+      this.db.run('commit')
+      this.persist()
+    } catch (error) {
+      this.db.run('rollback')
+      throw error
+    }
   }
 
   lookupDictionary(query: string): DictionaryEntryRecord | null {
@@ -1391,6 +1509,7 @@ export class ReadingPartnerDatabase {
         color text,
         note text,
         rects_json text,
+        vocabulary_id text,
         author_name text not null default 'Reader',
         created_at text not null,
         updated_at text not null
@@ -1479,6 +1598,7 @@ export class ReadingPartnerDatabase {
       create table if not exists vocabulary (
         id text primary key,
         document_id text references documents(id) on delete set null,
+        annotation_id text,
         word text not null,
         definition text not null,
         source_sentence text,
@@ -1516,7 +1636,11 @@ export class ReadingPartnerDatabase {
     `)
 
     this.ensureColumn('annotations', 'author_name', "text not null default 'Reader'")
+    this.ensureColumn('annotations', 'vocabulary_id', 'text')
     this.ensureColumn('documents', 'last_page_number', 'integer not null default 1')
+    this.ensureColumn('vocabulary', 'annotation_id', 'text')
+    this.db.run('create index if not exists idx_annotations_vocabulary on annotations(vocabulary_id)')
+    this.db.run('create index if not exists idx_vocabulary_annotation on vocabulary(annotation_id)')
     this.persist()
   }
 

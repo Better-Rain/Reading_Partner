@@ -87,6 +87,7 @@ export type AnnotationRecord = {
   color: string | null
   note: string | null
   rectsJson: string | null
+  vocabularyId: string | null
   authorName: string
   createdAt: string
   updatedAt: string
@@ -100,6 +101,7 @@ export type CreateAnnotationInput = {
   color?: string | null
   note?: string | null
   rectsJson?: string | null
+  vocabularyId?: string | null
   authorName?: string | null
 }
 
@@ -165,6 +167,7 @@ export type AIChatMessageRecord = {
 export type VocabularyRecord = {
   id: string
   documentId: string | null
+  annotationId: string | null
   word: string
   definition: string
   sourceSentence: string | null
@@ -178,6 +181,7 @@ export type CreateVocabularyInput = {
   definition: string
   sourceSentence?: string | null
   pageNumber?: number | null
+  annotationId?: string | null
 }
 
 export type UpdateVocabularyDefinitionInput = {
@@ -351,6 +355,7 @@ export type ReadingPartnerApi = {
   importReadingMarksDialog: (documentId: string) => Promise<ReadingMarkTransferResult | null>
   listVocabulary: (documentId?: string | null) => Promise<VocabularyRecord[]>
   createVocabulary: (input: CreateVocabularyInput) => Promise<VocabularyRecord>
+  linkVocabularyAnnotation: (vocabularyId: string, annotationId: string) => Promise<VocabularyRecord>
   updateVocabularyDefinition: (
     input: UpdateVocabularyDefinitionInput
   ) => Promise<VocabularyRecord>

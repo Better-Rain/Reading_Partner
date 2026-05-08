@@ -347,6 +347,10 @@ const registerIpc = (): void => {
     database.createVocabulary(input)
   )
 
+  ipcMain.handle('vocabulary:linkAnnotation', (_event, vocabularyId: string, annotationId: string) =>
+    database.linkVocabularyAnnotation(vocabularyId, annotationId)
+  )
+
   ipcMain.handle('vocabulary:updateDefinition', (_event, input: UpdateVocabularyDefinitionInput) =>
     database.updateVocabularyDefinition(input)
   )

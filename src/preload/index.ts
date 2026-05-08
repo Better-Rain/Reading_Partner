@@ -56,6 +56,8 @@ const api: ReadingPartnerApi = {
   listVocabulary: (documentId?: string | null) => ipcRenderer.invoke('vocabulary:list', documentId),
   createVocabulary: (input: CreateVocabularyInput) =>
     ipcRenderer.invoke('vocabulary:create', input),
+  linkVocabularyAnnotation: (vocabularyId: string, annotationId: string) =>
+    ipcRenderer.invoke('vocabulary:linkAnnotation', vocabularyId, annotationId),
   updateVocabularyDefinition: (input: UpdateVocabularyDefinitionInput) =>
     ipcRenderer.invoke('vocabulary:updateDefinition', input),
   deleteVocabulary: (id: string) => ipcRenderer.invoke('vocabulary:delete', id),
