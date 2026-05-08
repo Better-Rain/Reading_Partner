@@ -21,6 +21,11 @@ type HoveredAnnotation = {
   y: number
 }
 
+const tooltipOffset = 14
+const tooltipMargin = 10
+const estimatedTooltipWidth = 280
+const estimatedTooltipHeight = 340
+
 const parseAnnotationRects = (rectsJson: string | null): AnnotationRect[] => {
   if (!rectsJson) {
     return []
@@ -79,6 +84,49 @@ const hexToRgba = (value: string | null | undefined, alpha: number): string => {
   const blue = Number.parseInt(expanded.slice(4, 6), 16)
 
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`
+}
+
+const clamp = (value: number, min: number, max: number): number =>
+  Math.min(max, Math.max(min, value))
+
+const getTooltipPosition = (
+  event: ReactMouseEvent,
+  layerRect: DOMRect | undefined
+): { x: number; y: number } => {
+  if (!layerRect) {
+    return { x: tooltipOffset, y: tooltipOffset }
+  }
+
+  const readerRect = event.currentTarget
+    .closest('.reader-surface')
+    ?.getBoundingClientRect()
+  const visibleLeft = readerRect
+    ? Math.max(tooltipMargin, readerRect.left - layerRect.left + tooltipMargin)
+    : tooltipMargin
+  const visibleTop = readerRect
+    ? Math.max(tooltipMargin, readerRect.top - layerRect.top + tooltipMargin)
+    : tooltipMargin
+  const visibleRight = readerRect
+    ? Math.min(layerRect.width - tooltipMargin, readerRect.right - layerRect.left - tooltipMargin)
+    : layerRect.width - tooltipMargin
+  const visibleBottom = readerRect
+    ? Math.min(layerRect.height - tooltipMargin, readerRect.bottom - layerRect.top - tooltipMargin)
+    : layerRect.height - tooltipMargin
+  const anchorX = event.clientX - layerRect.left
+  const anchorY = event.clientY - layerRect.top
+  const hasRoomRight = anchorX + tooltipOffset + estimatedTooltipWidth <= visibleRight
+  const hasRoomBelow = anchorY + tooltipOffset + estimatedTooltipHeight <= visibleBottom
+  const preferredX = hasRoomRight
+    ? anchorX + tooltipOffset
+    : anchorX - estimatedTooltipWidth - tooltipOffset
+  const preferredY = hasRoomBelow
+    ? anchorY + tooltipOffset
+    : anchorY - estimatedTooltipHeight - tooltipOffset
+
+  return {
+    x: clamp(preferredX, visibleLeft, Math.max(visibleLeft, visibleRight - estimatedTooltipWidth)),
+    y: clamp(preferredY, visibleTop, Math.max(visibleTop, visibleBottom - estimatedTooltipHeight))
+  }
 }
 
 export function AnnotationOverlay({
@@ -173,11 +221,12 @@ export function AnnotationOverlay({
     const layerRect = event.currentTarget
       .closest('.pdf-annotation-layer')
       ?.getBoundingClientRect()
+    const position = getTooltipPosition(event, layerRect)
 
     setHoveredAnnotation({
       annotation,
-      x: layerRect ? event.clientX - layerRect.left + 14 : 14,
-      y: layerRect ? event.clientY - layerRect.top + 14 : 14
+      x: position.x,
+      y: position.y
     })
   }
   const pinTooltip = (annotation: AnnotationRecord, event: ReactMouseEvent): void => {
@@ -190,11 +239,12 @@ export function AnnotationOverlay({
     const layerRect = event.currentTarget
       .closest('.pdf-annotation-layer')
       ?.getBoundingClientRect()
+    const position = getTooltipPosition(event, layerRect)
 
     setPinnedAnnotation({
       annotation,
-      x: layerRect ? event.clientX - layerRect.left + 14 : 14,
-      y: layerRect ? event.clientY - layerRect.top + 14 : 14
+      x: position.x,
+      y: position.y
     })
   }
   const hideTooltip = (): void => setHoveredAnnotation(null)

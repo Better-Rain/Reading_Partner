@@ -577,6 +577,8 @@ button:disabled {
   position: absolute;
   z-index: 8;
   width: min(280px, 44vw);
+  max-height: min(340px, calc(100vh - 32px));
+  overflow: auto;
   transform: translateY(-4px);
   border: 1px solid rgba(22, 34, 51, 0.16);
   border-radius: 8px;
