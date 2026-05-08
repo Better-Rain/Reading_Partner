@@ -589,6 +589,10 @@ button:disabled {
   box-shadow: 0 14px 32px rgba(22, 34, 51, 0.22);
 }
 
+.pdf-annotation-tooltip.is-above {
+  transform: translateY(calc(-100% + 4px));
+}
+
 .pdf-annotation-tooltip.is-pinned {
   pointer-events: auto;
 }
