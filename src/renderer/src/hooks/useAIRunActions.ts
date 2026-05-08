@@ -149,7 +149,7 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
           pageNumber: currentRun.linkedSelection.pageNumber,
           selectedText: currentRun.linkedSelection.text,
           color: currentRun.linkedSelection.color,
-          note: `提问：${currentRun.linkedSelection.question}\n\n回答：${visibleOutputForNote}`,
+          note: visibleOutputForNote,
           rectsJson: currentRun.linkedSelection.rects.length
             ? JSON.stringify(currentRun.linkedSelection.rects)
             : null,
@@ -395,8 +395,7 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
           color: contextRef.current.selectedAnnotationColor,
           pageNumber,
           rects: selectionRects,
-          text: selectedText,
-          question: trimmed
+          text: selectedText
         }
       : undefined
     const requestId = crypto.randomUUID()

@@ -25,7 +25,6 @@ export type AIRunState = {
     pageNumber: number
     rects: AnnotationRect[]
     text: string
-    question: string
   }
   vocabularyId?: string
 }

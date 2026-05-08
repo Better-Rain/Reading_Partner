@@ -21,6 +21,7 @@ import {
   X
 } from 'lucide-react'
 import type { AnnotationRecord } from '../../../shared/types'
+import { MarkdownContent } from './MarkdownContent'
 
 export type AnnotationCategoryFilter = AnnotationRecord['type'] | 'vocabulary'
 export type AnnotationPageScope = 'all' | 'current'
@@ -539,7 +540,7 @@ export function NotesPanel({
                         )}
                       </>
                     ) : annotation.note ? (
-                      <p>{annotation.note}</p>
+                      <MarkdownContent text={annotation.note} />
                     ) : (
                       <p className="muted">还没有批注内容。</p>
                     )}

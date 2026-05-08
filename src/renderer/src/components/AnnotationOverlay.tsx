@@ -4,6 +4,7 @@ import { X } from 'lucide-react'
 import type { AnnotationRecord } from '../../../shared/types'
 import type { AnnotationRect } from '../annotationGeometry'
 import { normalizeAnnotationRects } from '../annotationGeometry'
+import { MarkdownContent } from './MarkdownContent'
 import { formatTime, getAnnotationPreview } from './NotesPanel'
 
 export type AnnotationInteractionMode = 'inspect' | 'select'
@@ -407,7 +408,11 @@ export function AnnotationOverlay({
           <span className="annotation-tooltip-author">
             {visibleTooltip.annotation.authorName || 'Reader'}
           </span>
-          <p>{getAnnotationPreview(visibleTooltip.annotation)}</p>
+          {visibleTooltip.annotation.note ? (
+            <MarkdownContent text={visibleTooltip.annotation.note} />
+          ) : (
+            <p>{getAnnotationPreview(visibleTooltip.annotation)}</p>
+          )}
         </div>
       )}
     </div>

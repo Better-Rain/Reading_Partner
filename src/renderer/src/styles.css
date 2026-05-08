@@ -579,6 +579,7 @@ button:disabled {
   width: min(280px, 44vw);
   max-height: min(340px, calc(100vh - 32px));
   overflow: auto;
+  scrollbar-width: none;
   transform: translateY(-4px);
   border: 1px solid rgba(22, 34, 51, 0.16);
   border-radius: 8px;
@@ -587,6 +588,10 @@ button:disabled {
   padding: 10px 12px;
   pointer-events: none;
   box-shadow: 0 14px 32px rgba(22, 34, 51, 0.22);
+}
+
+.pdf-annotation-tooltip::-webkit-scrollbar {
+  display: none;
 }
 
 .pdf-annotation-tooltip.is-above {
@@ -648,9 +653,31 @@ button:disabled {
   line-height: 1.55;
 }
 
+.pdf-annotation-tooltip .markdown-content {
+  color: #344256;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.pdf-annotation-tooltip .markdown-content h2,
+.pdf-annotation-tooltip .markdown-content h3 {
+  margin: 8px 0 4px;
+  font-size: 13px;
+}
+
+.pdf-annotation-tooltip .markdown-content p,
+.pdf-annotation-tooltip .markdown-content ul,
+.pdf-annotation-tooltip .markdown-content ol,
+.pdf-annotation-tooltip .markdown-content blockquote {
+  display: block;
+  overflow: visible;
+  margin-top: 6px;
+  -webkit-line-clamp: unset;
+}
+
 .pdf-annotation-tooltip.is-pinned p {
   display: block;
-  overflow: auto;
+  overflow: hidden;
   max-height: 260px;
   -webkit-line-clamp: unset;
 }
