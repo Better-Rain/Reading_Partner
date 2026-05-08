@@ -1076,7 +1076,7 @@ button:disabled {
 
 .annotation-filter-compact {
   display: grid;
-  grid-template-columns: repeat(6, 30px) 1fr repeat(2, 30px);
+  grid-template-columns: repeat(7, 30px) 1fr repeat(2, 30px);
   min-width: 0;
   align-items: center;
   gap: 5px;
@@ -1118,11 +1118,11 @@ button:disabled {
 }
 
 .annotation-filter-advanced {
-  grid-column: 8;
+  grid-column: 9;
 }
 
 .annotation-filter-reset {
-  grid-column: 9;
+  grid-column: 10;
 }
 
 .annotation-filter-detail {

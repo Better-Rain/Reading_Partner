@@ -15,19 +15,20 @@ import {
   Settings,
   StickyNote,
   Trash2,
+  Underline,
   Upload,
   UserRound,
   X
 } from 'lucide-react'
 import type { AnnotationRecord } from '../../../shared/types'
 
-export type AnnotationTypeFilter = 'all' | AnnotationRecord['type']
+export type AnnotationCategoryFilter = AnnotationRecord['type'] | 'vocabulary'
 export type AnnotationPageScope = 'all' | 'current'
 export type AnnotationSortMode = 'newest' | 'oldest' | 'page' | 'type'
 
 export type AnnotationFilterState = {
   query: string
-  type: AnnotationTypeFilter
+  categories: AnnotationCategoryFilter[]
   author: string
   pageScope: AnnotationPageScope
   sort: AnnotationSortMode
@@ -42,7 +43,7 @@ export type AnnotationColorPreset = {
 
 export const defaultAnnotationFilters: AnnotationFilterState = {
   query: '',
-  type: 'all',
+  categories: [],
   author: 'all',
   pageScope: 'all',
   sort: 'page',
@@ -61,17 +62,37 @@ export const formatTime = (iso: string): string =>
 export const getAnnotationPreview = (annotation: AnnotationRecord): string =>
   annotation.note?.trim() || annotation.selectedText?.trim() || '书签'
 
-const getAnnotationTypeLabel = (type: AnnotationRecord['type']): string => {
-  if (type === 'highlight') {
+const getAnnotationCategory = (annotation: AnnotationRecord): AnnotationCategoryFilter =>
+  annotation.vocabularyId ? 'vocabulary' : annotation.type
+
+const getAnnotationCategoryLabel = (category: AnnotationCategoryFilter): string => {
+  if (category === 'highlight') {
     return '高亮'
   }
 
-  if (type === 'note') {
+  if (category === 'note') {
     return '批注'
+  }
+
+  if (category === 'vocabulary') {
+    return '生词'
   }
 
   return '书签'
 }
+
+const annotationCategoryOrder: Record<AnnotationCategoryFilter, number> = {
+  highlight: 0,
+  note: 1,
+  vocabulary: 2,
+  bookmark: 3
+}
+const allAnnotationCategories: AnnotationCategoryFilter[] = [
+  'highlight',
+  'note',
+  'vocabulary',
+  'bookmark'
+]
 
 export const matchesAnnotationFilters = (
   annotation: AnnotationRecord,
@@ -79,7 +100,9 @@ export const matchesAnnotationFilters = (
   currentPageNumber: number,
   options: { includePageScope: boolean; includeQuery: boolean }
 ): boolean => {
-  if (filters.type !== 'all' && annotation.type !== filters.type) {
+  const category = getAnnotationCategory(annotation)
+
+  if (filters.categories.length > 0 && !filters.categories.includes(category)) {
     return false
   }
 
@@ -98,7 +121,7 @@ export const matchesAnnotationFilters = (
       annotation.note,
       annotation.selectedText,
       annotation.authorName,
-      getAnnotationTypeLabel(annotation.type),
+      getAnnotationCategoryLabel(category),
       `第 ${annotation.pageNumber} 页`
     ]
       .filter(Boolean)
@@ -128,7 +151,8 @@ const sortAnnotations = (
 
     if (sortMode === 'type') {
       return (
-        first.type.localeCompare(second.type) ||
+        annotationCategoryOrder[getAnnotationCategory(first)] -
+          annotationCategoryOrder[getAnnotationCategory(second)] ||
         first.pageNumber - second.pageNumber ||
         first.createdAt.localeCompare(second.createdAt)
       )
@@ -211,9 +235,19 @@ export function NotesPanel({
   const updateFilters = (patch: Partial<AnnotationFilterState>): void => {
     onFiltersChange({ ...filters, ...patch })
   }
+  const toggleCategory = (category: AnnotationCategoryFilter): void => {
+    const nextCategories = filters.categories.includes(category)
+      ? filters.categories.filter((item) => item !== category)
+      : [...filters.categories, category]
+
+    updateFilters({
+      categories:
+        nextCategories.length === allAnnotationCategories.length ? [] : nextCategories
+    })
+  }
   const hasActiveFilters =
     filters.query.trim() ||
-    filters.type !== 'all' ||
+    filters.categories.length > 0 ||
     filters.author !== 'all' ||
     filters.pageScope !== 'all' ||
     filters.sort !== defaultAnnotationFilters.sort ||
@@ -298,41 +332,49 @@ export function NotesPanel({
       <div className="annotation-filter-panel">
         <div className="annotation-filter-compact" aria-label="笔记筛选">
           <button
-            className={filters.type === 'all' ? 'active' : ''}
+            className={filters.categories.length === 0 ? 'active' : ''}
             disabled={!hasDocument}
-            title="全部类型"
-            onClick={() => updateFilters({ type: 'all' })}
+            title="全部显示"
+            onClick={() => updateFilters({ categories: [] })}
           >
             <FileText size={15} />
           </button>
           <button
-            className={filters.type === 'highlight' ? 'active' : ''}
+            className={filters.categories.includes('highlight') ? 'active' : ''}
             disabled={!hasDocument}
-            title="只看高亮"
-            onClick={() => updateFilters({ type: 'highlight' })}
+            title="显示/隐藏高亮"
+            onClick={() => toggleCategory('highlight')}
           >
             <Highlighter size={15} />
           </button>
           <button
-            className={filters.type === 'note' ? 'active' : ''}
+            className={filters.categories.includes('note') ? 'active' : ''}
             disabled={!hasDocument}
-            title="只看批注"
-            onClick={() => updateFilters({ type: 'note' })}
+            title="显示/隐藏批注"
+            onClick={() => toggleCategory('note')}
           >
             <StickyNote size={15} />
           </button>
           <button
-            className={filters.type === 'bookmark' ? 'active' : ''}
+            className={filters.categories.includes('vocabulary') ? 'active' : ''}
             disabled={!hasDocument}
-            title="只看书签"
-            onClick={() => updateFilters({ type: 'bookmark' })}
+            title="显示/隐藏生词批注"
+            onClick={() => toggleCategory('vocabulary')}
+          >
+            <Underline size={15} />
+          </button>
+          <button
+            className={filters.categories.includes('bookmark') ? 'active' : ''}
+            disabled={!hasDocument}
+            title="显示/隐藏书签"
+            onClick={() => toggleCategory('bookmark')}
           >
             <Bookmark size={15} />
           </button>
           <button
             className={filters.pageScope === 'current' ? 'active' : ''}
             disabled={!hasDocument}
-            title="只看当前页"
+            title="显示/隐藏非当前页"
             onClick={() =>
               updateFilters({ pageScope: filters.pageScope === 'current' ? 'all' : 'current' })
             }
@@ -452,7 +494,7 @@ export function NotesPanel({
                           style={{ backgroundColor: annotation.color }}
                         />
                       )}
-                      {annotation.type}
+                      {getAnnotationCategoryLabel(getAnnotationCategory(annotation))}
                     </strong>
                     <span>{preview}</span>
                   </span>
