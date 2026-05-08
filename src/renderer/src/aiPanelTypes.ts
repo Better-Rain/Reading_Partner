@@ -5,6 +5,7 @@ import type {
   AIPromptType,
   AnnotationRecord
 } from '../../shared/types'
+import type { AnnotationRect } from './annotationGeometry'
 
 export type AIRunState = {
   requestId: string
@@ -18,6 +19,14 @@ export type AIRunState = {
   error: string | null
   source: 'selection' | 'vocabulary' | 'document_qa' | 'chat'
   conversationId?: string
+  linkedSelection?: {
+    authorName: string
+    color: string
+    pageNumber: number
+    rects: AnnotationRect[]
+    text: string
+    question: string
+  }
   vocabularyId?: string
 }
 

@@ -13,6 +13,7 @@ import type {
 import { extractAIReasoning, makeConversationTitle, stripAIReasoningBlock } from '../aiText'
 import { aiDefaultAnnotationColor, extractAIAssistedAnnotations } from '../aiAnnotations'
 import { AIRunState, promptLabels } from '../aiPanelTypes'
+import type { AnnotationRect } from '../annotationGeometry'
 import type { InspectorTab } from '../components/InspectorTabBar'
 
 type UseAIRunActionsParams = {
@@ -23,6 +24,9 @@ type UseAIRunActionsParams = {
   pageCount: number
   pageNumber: number
   readyProvider: AIProviderRecord | null
+  readerName: string
+  selectedAnnotationColor: string
+  selectionRects: AnnotationRect[]
   selectionText: string | null
   appendOptimisticChatMessage: (message: AIChatMessageRecord) => void
   createAIAssistedAnnotations: (
@@ -136,6 +140,24 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
 
     if (currentRun?.source === 'chat' && currentRun.conversationId) {
       await refreshAIConversationAfterRun(currentRun.conversationId, event.artifact.documentId)
+      let linkedSelectionAnnotation: AnnotationRecord | null = null
+
+      if (currentRun.linkedSelection) {
+        linkedSelectionAnnotation = await window.readingPartner.createAnnotation({
+          documentId: event.artifact.documentId,
+          type: 'note',
+          pageNumber: currentRun.linkedSelection.pageNumber,
+          selectedText: currentRun.linkedSelection.text,
+          color: currentRun.linkedSelection.color,
+          note: `提问：${currentRun.linkedSelection.question}\n\n回答：${visibleOutputForNote}`,
+          rectsJson: currentRun.linkedSelection.rects.length
+            ? JSON.stringify(currentRun.linkedSelection.rects)
+            : null,
+          authorName: currentRun.linkedSelection.authorName
+        })
+        setAnnotations((items) => [...items, linkedSelectionAnnotation as AnnotationRecord])
+      }
+
       const createdAnnotations = await createAIAssistedAnnotations(
         event.artifact.documentId,
         assistedAnnotationDrafts,
@@ -149,7 +171,11 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
           : current
       )
       setStatus(
-        createdAnnotations.length > 0
+        linkedSelectionAnnotation
+          ? createdAnnotations.length > 0
+            ? `共读对话已更新，已将回答保存为选区批注，并创建 ${createdAnnotations.length} 条 AI 辅助批注`
+            : '共读对话已更新，已将回答保存为选区批注'
+          : createdAnnotations.length > 0
           ? `共读对话已更新，并创建 ${createdAnnotations.length} 条 AI 辅助批注`
           : '共读对话已更新'
       )
@@ -326,7 +352,9 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
       chatTitleDraft,
       createAIConversation,
       pageNumber,
+      readerName,
       readyProvider,
+      selectionRects,
       selectionText,
       setActiveTab,
       setChatDraft,
@@ -361,6 +389,16 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
     }
 
     const selectedText = selectionText
+    const linkedSelection = selectedText?.trim()
+      ? {
+          authorName: readerName.trim() || 'Reader',
+          color: contextRef.current.selectedAnnotationColor,
+          pageNumber,
+          rects: selectionRects,
+          text: selectedText,
+          question: trimmed
+        }
+      : undefined
     const requestId = crypto.randomUUID()
     const optimisticMessage: AIChatMessageRecord = {
       id: `pending:${requestId}`,
@@ -390,7 +428,8 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
       status: 'running',
       error: null,
       source: 'chat',
-      conversationId: conversation.id
+      conversationId: conversation.id,
+      linkedSelection
     })
     setActiveTab('ai')
     setSelection(null)
