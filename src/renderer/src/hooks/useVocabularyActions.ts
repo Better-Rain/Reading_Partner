@@ -6,7 +6,6 @@ import type {
   VocabularyRecord
 } from '../../../shared/types'
 import type { AnnotationRect } from '../annotationGeometry'
-import type { InspectorTab } from '../components/InspectorTabBar'
 import { makeDefinitionFromDictionary } from '../vocabularyUtils'
 
 type UseVocabularyActionsParams = {
@@ -18,7 +17,6 @@ type UseVocabularyActionsParams = {
   selectionText: string | null
   vocabulary: VocabularyRecord[]
   refreshDictionarySources: () => Promise<void>
-  setActiveTab: Dispatch<SetStateAction<InspectorTab>>
   setAnnotations: Dispatch<SetStateAction<AnnotationRecord[]>>
   setSelection: (selection: null) => void
   setStatus: Dispatch<SetStateAction<string>>
@@ -34,7 +32,6 @@ export const useVocabularyActions = ({
   selectionText,
   vocabulary,
   refreshDictionarySources,
-  setActiveTab,
   setAnnotations,
   setSelection,
   setStatus,
@@ -82,7 +79,6 @@ export const useVocabularyActions = ({
         console.error('Failed to create vocabulary annotation', error)
         setVocabulary((items) => [created, ...items])
         setSelection(null)
-        setActiveTab('vocab')
         setStatus(
           `已加入词汇本，但创建生词批注失败：${error instanceof Error ? error.message : String(error)}`
         )
@@ -90,7 +86,6 @@ export const useVocabularyActions = ({
       }
 
       setSelection(null)
-      setActiveTab('vocab')
       setStatus(
         lookup.entry
           ? '已用本地词典释义加入词汇本，并创建生词批注'

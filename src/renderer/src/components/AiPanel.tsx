@@ -135,6 +135,23 @@ export function AiPanel({
   }, [activeConversation?.id, activeConversation?.title])
 
   useEffect(() => {
+    if (!isConversationOpen) {
+      return
+    }
+
+    shouldStickToBottomRef.current = true
+    const list = chatMessageListRef.current
+
+    if (!list) {
+      return
+    }
+
+    window.requestAnimationFrame(() => {
+      list.scrollTop = list.scrollHeight
+    })
+  }, [activeConversationId, isConversationOpen])
+
+  useEffect(() => {
     const list = chatMessageListRef.current
 
     if (!list || !shouldStickToBottomRef.current) {

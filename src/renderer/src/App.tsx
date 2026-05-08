@@ -319,7 +319,6 @@ function App(): JSX.Element {
     selectionText: selection?.text ?? null,
     vocabulary,
     refreshDictionarySources,
-    setActiveTab,
     setAnnotations,
     setSelection,
     setStatus,
