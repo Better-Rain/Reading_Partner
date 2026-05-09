@@ -1,6 +1,6 @@
 {
   "name": "reading-partner",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AI-assisted desktop PDF reader for large literature.",
   "main": "out/main/index.js",
   "author": "Reading Partner",

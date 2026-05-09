@@ -5,7 +5,7 @@ Reading Partner 是一个面向大部头 PDF 文献、英文原著和研究型�
 当前版本优先支持 Windows。已构建的便携版程序通常位于：
 
 ```text
-release/Reading Partner 0.1.0.exe
+release/Reading Partner 0.2.0.exe
 ```
 
 双击即可运行，无需安装。
@@ -21,7 +21,7 @@ release/Reading Partner 0.1.0.exe
 
 ## 快速开始
 
-1. 打开 `Reading Partner 0.1.0.exe`。
+1. 打开 `Reading Partner 0.2.0.exe`。
 2. 点击左上角的打开按钮，选择一本 PDF。
 3. 等待状态栏显示“文本索引完成”或“文本索引已就绪”。
 4. 在右侧面板切换“笔记、搜索、AI、词汇、配置”开始使用。
@@ -179,7 +179,7 @@ npm run icons
 
 ## 相关文档
 
-- [版本说明](docs/RELEASE_NOTES_0.1.0.md)
+- [版本说明](docs/RELEASE_NOTES_0.2.0.md)
 - [用户配置指南](docs/USER_SETUP_GUIDE.md)
 - [架构说明](docs/ARCHITECTURE.md)
 - [开发路线图](docs/ROADMAP.md)
