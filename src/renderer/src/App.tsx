@@ -607,6 +607,31 @@ function App(): JSX.Element {
     setProviders((items) => items.map((item) => (item.id === updated.id ? updated : item)))
   }
 
+  const updateProviderModel = async (
+    provider: AIProviderRecord,
+    defaultModel: string
+  ): Promise<void> => {
+    const normalizedModel = defaultModel.trim()
+
+    if (!normalizedModel) {
+      return
+    }
+
+    const updated = await window.readingPartner.upsertAIProvider({
+      id: provider.id,
+      label: provider.label,
+      baseUrl: provider.baseUrl,
+      defaultModel: normalizedModel,
+      apiKeyRef: provider.apiKeyRef,
+      supportsThinking: provider.supportsThinking,
+      supportsLongContext: provider.supportsLongContext,
+      enabled: provider.enabled
+    })
+
+    setProviders((items) => items.map((item) => (item.id === updated.id ? updated : item)))
+    setStatus(`已将 ${provider.label} 模型改为 ${updated.defaultModel}`)
+  }
+
   const saveProviderKey = async (providerId: string, apiKey: string): Promise<void> => {
     const updated = await window.readingPartner.setAIProviderApiKey(providerId, apiKey)
     setProviders((items) => items.map((item) => (item.id === updated.id ? updated : item)))
@@ -869,6 +894,7 @@ function App(): JSX.Element {
             onReaderNameChange={setReaderName}
             onSaveKey={(providerId, apiKey) => void saveProviderKey(providerId, apiKey)}
             onToggle={(provider, enabled) => void updateProvider(provider, enabled)}
+            onUpdateModel={(provider, defaultModel) => void updateProviderModel(provider, defaultModel)}
           />
         )}
       </aside>

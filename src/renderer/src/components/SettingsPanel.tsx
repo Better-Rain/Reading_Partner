@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { KeyRound } from 'lucide-react'
+import { Check, KeyRound, Pencil, X } from 'lucide-react'
 import type { AIProviderRecord } from '../../../shared/types'
 
 type SettingsPanelProps = {
@@ -10,6 +10,7 @@ type SettingsPanelProps = {
   onReaderNameChange: (value: string) => void
   onSaveKey: (providerId: string, apiKey: string) => void
   onToggle: (provider: AIProviderRecord, enabled: boolean) => void
+  onUpdateModel: (provider: AIProviderRecord, defaultModel: string) => void
 }
 
 export function SettingsPanel({
@@ -19,9 +20,12 @@ export function SettingsPanel({
   onClearKey,
   onReaderNameChange,
   onSaveKey,
-  onToggle
+  onToggle,
+  onUpdateModel
 }: SettingsPanelProps): JSX.Element {
   const [draftKeys, setDraftKeys] = useState<Record<string, string>>({})
+  const [editingModelId, setEditingModelId] = useState<string | null>(null)
+  const [modelDrafts, setModelDrafts] = useState<Record<string, string>>({})
 
   return (
     <div className="inspector-content">
@@ -51,7 +55,61 @@ export function SettingsPanel({
               <div className="provider-heading">
                 <div>
                   <strong>{provider.label}</strong>
-                  <span>{provider.defaultModel}</span>
+                  {editingModelId === provider.id ? (
+                    <div className="provider-model-editor">
+                      <input
+                        autoFocus
+                        value={modelDrafts[provider.id] ?? provider.defaultModel}
+                        onChange={(event) =>
+                          setModelDrafts((items) => ({
+                            ...items,
+                            [provider.id]: event.target.value
+                          }))
+                        }
+                      />
+                      <button
+                        className="text-button neutral"
+                        disabled={!(modelDrafts[provider.id] ?? provider.defaultModel).trim()}
+                        onClick={() => {
+                          onUpdateModel(provider, modelDrafts[provider.id] ?? provider.defaultModel)
+                          setEditingModelId(null)
+                        }}
+                      >
+                        <Check size={13} />
+                        保存
+                      </button>
+                      <button
+                        className="text-button"
+                        onClick={() => {
+                          setModelDrafts((items) => ({
+                            ...items,
+                            [provider.id]: provider.defaultModel
+                          }))
+                          setEditingModelId(null)
+                        }}
+                      >
+                        <X size={13} />
+                        取消
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="provider-model-row">
+                      {provider.defaultModel}
+                      <button
+                        className="text-button neutral"
+                        onClick={() => {
+                          setModelDrafts((items) => ({
+                            ...items,
+                            [provider.id]: provider.defaultModel
+                          }))
+                          setEditingModelId(provider.id)
+                        }}
+                      >
+                        <Pencil size={13} />
+                        修改模型
+                      </button>
+                    </span>
+                  )}
                 </div>
                 <label className="switch">
                   <input

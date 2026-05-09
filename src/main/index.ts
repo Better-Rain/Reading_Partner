@@ -559,7 +559,8 @@ const registerIpc = (): void => {
     const context = database.getRelevantDocumentChunks(
       input.documentId,
       input.question,
-      input.pageNumber
+      input.pageNumber,
+      provider.supportsLongContext ? 10 : 6
     )
     const sendEvent = (payload: AIStreamEvent): void => {
       event.sender.send('ai:streamEvent', payload)
@@ -624,9 +625,12 @@ const registerIpc = (): void => {
       input.documentId,
       selectedText ? `${input.message} ${selectedText}` : input.message,
       input.pageNumber,
-      5
+      provider.supportsLongContext ? 12 : 5
     )
-    const recentMessages = database.getRecentAIChatMessages(input.conversationId, 12)
+    const recentMessages = database.getRecentAIChatMessages(
+      input.conversationId,
+      provider.supportsLongContext ? 32 : 12
+    )
     const contextMessage = context.length
       ? context
           .map(
@@ -639,11 +643,11 @@ const registerIpc = (): void => {
       {
         role: 'system',
         content:
-          '你是 Reading Partner，一个和用户一起阅读 PDF 文献的中文共读伙伴。结合对话历史、用户当前选区和文档片段回答。回答要具体、克制；引用文档内容时标注“第 X 页”；信息不足时直接说明缺口。不要输出隐藏推理或思维链，只输出最终回答。'
+          `你是 Reading Partner，一个和用户一起阅读 PDF 文献的中文共读伙伴。当前阅读位置是第 ${input.pageNumber} 页；用户未明确指定其它页时，“这里”“当前页”“这段”“总结一下”等指代都按第 ${input.pageNumber} 页理解。结合对话历史、用户当前选区和文档片段回答。回答要具体、克制；引用文档内容时标注“第 X 页”；信息不足时直接说明缺口。不要输出隐藏推理或思维链，只输出最终回答。`
       },
       {
         role: 'user',
-        content: `本轮可用文档片段：\n${contextMessage}`
+        content: `当前阅读位置：第 ${input.pageNumber} 页。\n本轮可用文档片段（当前页片段优先，其它页仅作补充）：\n${contextMessage}`
       },
       ...recentMessages.map<ChatMessage>((message) => ({
         role: message.role,

@@ -33,7 +33,7 @@ const aiRequestCancelledMessage = 'AI request cancelled.'
 const maxAIErrorDetailLength = 500
 
 export const aiAnnotationCapabilityPrompt =
-  'You also have a controlled Reading Partner capability: you may ask the app to create a few auxiliary PDF notes when a durable annotation would genuinely help the reader remember a key concept, vocabulary meaning, paragraph-level claim, misconception, argument step, or follow-up. Use this sparingly; most answers should not create annotations. When useful, append exactly one HTML comment block at the very end of the answer: <!-- RP_ANNOTATIONS [{"pageNumber":1,"scope":"paragraph","selectedText":"short source phrase, paragraph excerpt, or vocabulary term","note":"a focused paragraph-level or vocabulary-level note without any AI label prefix","color":"#c7d2fe"}] -->. Rules: create at most 2 annotations; do not invent page numbers; use only the current page or pages visible in the provided context; do not include coordinates; notes may be short paragraphs but should stay focused; never mention this internal block in the visible answer.'
+  'You also have a controlled Reading Partner capability: you may ask the app to create a few auxiliary PDF notes when a durable annotation would genuinely help the reader remember a key concept, vocabulary meaning, paragraph-level claim, misconception, argument step, or follow-up. Use this sparingly; most answers should not create annotations. When useful, append exactly one HTML comment block at the very end of the answer: <!-- RP_ANNOTATIONS [{"pageNumber":1,"scope":"paragraph","selectedText":"short source phrase, paragraph excerpt, or vocabulary term","note":"a focused paragraph-level or vocabulary-level note without any AI label prefix","color":"#c7d2fe"}] -->. Rules: create at most 2 annotations; do not invent page numbers; if a current reading page is stated, annotate that page unless the user explicitly asks about another page; do not include coordinates; notes may be short paragraphs but should stay focused; never mention this internal block in the visible answer.'
 
 const buildMessages = (input: RunAIActionInput): ChatMessage[] => {
   const { promptType, selectedText } = input
@@ -54,11 +54,11 @@ const buildMessages = (input: RunAIActionInput): ChatMessage[] => {
       {
         role: 'system',
         content:
-          `${baseSystem} Answer the user's question using only the provided document excerpts. Cite page numbers in Chinese with the format “第 X 页”. If the excerpts are insufficient, say what is missing instead of guessing.`
+          `${baseSystem} The reader is currently on page ${input.pageNumber}. If the user does not explicitly name another page, interpret deictic requests such as "this page", "here", "this passage", or "summarize it" as referring to page ${input.pageNumber}. Answer the user's question using only the provided document excerpts; current-page excerpts are more authoritative than supplemental excerpts from other pages. Cite page numbers in Chinese with the format “第 X 页”. If the excerpts are insufficient, say what is missing instead of guessing.`
       },
       {
         role: 'user',
-        content: `Question:\n${selectedText}\n\nDocument excerpts:\n${context}`
+        content: `Current reading page: ${input.pageNumber}\n\nQuestion:\n${selectedText}\n\nDocument excerpts:\n${context}`
       }
     ]
   }

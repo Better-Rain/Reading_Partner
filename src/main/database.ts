@@ -587,6 +587,50 @@ export class ReadingPartnerDatabase {
     this.getDocument(documentId)
     const terms = normalizeQuestionQuery(query)
     const maxRows = Math.max(limit * 8, 48)
+    const normalizedPageNumber =
+      pageNumber && Number.isFinite(pageNumber) ? Math.max(1, Math.floor(pageNumber)) : null
+    const results: DocumentQuestionContext[] = []
+    const seenChunkIds = new Set<string>()
+    const addRows = (rows: DocumentChunkRow[], score = 0): void => {
+      for (const row of rows) {
+        if (results.length >= limit || seenChunkIds.has(row.id)) {
+          continue
+        }
+
+        seenChunkIds.add(row.id)
+        results.push({
+          id: row.id,
+          documentId: row.document_id,
+          pageNumber: row.page_number,
+          chunkIndex: row.chunk_index,
+          text: row.text,
+          score
+        })
+      }
+    }
+    const addContexts = (contexts: DocumentQuestionContext[]): void => {
+      for (const context of contexts) {
+        if (results.length >= limit || seenChunkIds.has(context.id)) {
+          continue
+        }
+
+        seenChunkIds.add(context.id)
+        results.push(context)
+      }
+    }
+
+    if (normalizedPageNumber) {
+      const currentPageRows = this.query<DocumentChunkRow>(
+        `select id, document_id, page_number, chunk_index, text
+         from document_chunks
+         where document_id = ? and page_number = ?
+         order by chunk_index asc
+         limit ?`,
+        [documentId, normalizedPageNumber, Math.max(2, Math.ceil(limit * 0.6))]
+      )
+
+      addRows(currentPageRows)
+    }
 
     if (terms.length > 0) {
       const whereTerms = terms.map(() => "lower(text) like ? escape '\\'").join(' or ')
@@ -607,6 +651,9 @@ export class ReadingPartnerDatabase {
         .map((row) => {
           const lower = row.text.toLocaleLowerCase()
           const score = terms.reduce((total, term) => total + countOccurrences(lower, term), 0)
+          const pageDistance = normalizedPageNumber
+            ? Math.abs(row.page_number - normalizedPageNumber)
+            : 0
 
           return {
             id: row.id,
@@ -614,25 +661,35 @@ export class ReadingPartnerDatabase {
             pageNumber: row.page_number,
             chunkIndex: row.chunk_index,
             text: row.text,
-            score
+            score,
+            pageDistance
           }
         })
-        .sort((left, right) => right.score - left.score || left.pageNumber - right.pageNumber)
-        .slice(0, limit)
+        .sort(
+          (left, right) =>
+            right.score - left.score ||
+            left.pageDistance - right.pageDistance ||
+            left.pageNumber - right.pageNumber ||
+            left.chunkIndex - right.chunkIndex
+        )
 
       if (scored.length > 0) {
-        return scored
+        addContexts(scored.map(({ pageDistance: _pageDistance, ...row }) => row))
       }
     }
 
-    if (pageNumber && Number.isFinite(pageNumber)) {
+    if (results.length > 0) {
+      return results
+    }
+
+    if (normalizedPageNumber) {
       const rows = this.query<DocumentChunkRow>(
         `select id, document_id, page_number, chunk_index, text
          from document_chunks
          where document_id = ? and page_number between ? and ?
          order by page_number asc, chunk_index asc
          limit ?`,
-        [documentId, Math.max(1, pageNumber - 1), pageNumber + 1, limit]
+        [documentId, Math.max(1, normalizedPageNumber - 1), normalizedPageNumber + 1, limit]
       )
 
       if (rows.length > 0) {
