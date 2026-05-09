@@ -1,4 +1,5 @@
 import { aiAnnotationBlockPattern, stripAIAssistedAnnotationBlock } from './aiText'
+import type { AnnotationRect } from './annotationGeometry'
 
 export type AIAssistedAnnotation = {
   pageNumber: number
@@ -6,6 +7,7 @@ export type AIAssistedAnnotation = {
   selectedText: string | null
   note: string
   color: string
+  rects?: AnnotationRect[]
 }
 
 export const aiDefaultAnnotationColor = '#c7d2fe'

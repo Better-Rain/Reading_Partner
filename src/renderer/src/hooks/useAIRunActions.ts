@@ -10,6 +10,7 @@ import type {
   DocumentRecord,
   VocabularyRecord
 } from '../../../shared/types'
+import { hasExplicitAnnotationIntent } from '../../../shared/aiAnnotationIntent'
 import { extractAIReasoning, makeConversationTitle, stripAIReasoningBlock } from '../aiText'
 import { aiDefaultAnnotationColor, extractAIAssistedAnnotations } from '../aiAnnotations'
 import { AIRunState, promptLabels } from '../aiPanelTypes'
@@ -52,6 +53,48 @@ type UseAIRunActionsParams = {
 }
 
 type AIRunContext = UseAIRunActionsParams
+
+const buildSelectedAnnotationDrafts = (
+  run: AIRunState,
+  drafts: ReturnType<typeof extractAIAssistedAnnotations>['annotations'],
+  visibleOutputForNote: string
+): ReturnType<typeof extractAIAssistedAnnotations>['annotations'] => {
+  const request = run.selectedAnnotationRequest
+
+  if (!request) {
+    return drafts
+  }
+
+  if (drafts.length > 0) {
+    return drafts.map((draft, index) =>
+      index === 0
+        ? {
+            ...draft,
+            pageNumber: request.pageNumber,
+            selectedText: draft.selectedText || request.text,
+            rects: request.rects
+          }
+        : draft
+    )
+  }
+
+  const fallbackNote = visibleOutputForNote.trim()
+
+  if (!fallbackNote) {
+    return drafts
+  }
+
+  return [
+    {
+      pageNumber: request.pageNumber,
+      scope: 'paragraph',
+      selectedText: request.text,
+      note: fallbackNote,
+      color: request.color,
+      rects: request.rects
+    }
+  ]
+}
 
 export const useAIRunActions = (params: UseAIRunActionsParams): {
   aiRun: AIRunState | null
@@ -178,9 +221,14 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
         setAnnotations((items) => [...items, linkedSelectionAnnotation as AnnotationRecord])
       }
 
+      const assistedDraftsForCreation = buildSelectedAnnotationDrafts(
+        currentRun,
+        assistedAnnotationDrafts,
+        visibleOutputForNote
+      )
       const createdAnnotations = await createAIAssistedAnnotations(
         event.artifact.documentId,
-        assistedAnnotationDrafts,
+        assistedDraftsForCreation,
         event.artifact.model
       )
 
@@ -409,9 +457,19 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
     }
 
     const selectedText = selectionText
-    const linkedSelection = selectedText?.trim()
+    const explicitSelectedAnnotationRequest =
+      Boolean(selectedText?.trim()) && hasExplicitAnnotationIntent(trimmed)
+    const linkedSelection = selectedText?.trim() && !explicitSelectedAnnotationRequest
       ? {
           authorName: readerName.trim() || 'Reader',
+          color: contextRef.current.selectedAnnotationColor,
+          pageNumber,
+          rects: selectionRects,
+          text: selectedText ?? ''
+        }
+      : undefined
+    const selectedAnnotationRequest = explicitSelectedAnnotationRequest
+      ? {
           color: contextRef.current.selectedAnnotationColor,
           pageNumber,
           rects: selectionRects,
@@ -448,7 +506,8 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
       error: null,
       source: 'chat',
       conversationId: conversation.id,
-      linkedSelection
+      linkedSelection,
+      selectedAnnotationRequest
     })
     setActiveTab('ai')
     setSelection(null)
@@ -501,6 +560,8 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
     const requestId = crypto.randomUUID()
     const replayPageNumber = message.pageNumber ?? pageNumber
     const selectedText = message.selectedText ?? null
+    const explicitSelectedAnnotationRequest =
+      Boolean(selectedText?.trim()) && hasExplicitAnnotationIntent(trimmed)
     const optimisticMessage: AIChatMessageRecord = {
       id: `pending:${requestId}`,
       conversationId: activeConversation.id,
@@ -527,7 +588,15 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
       status: 'running',
       error: null,
       source: 'chat',
-      conversationId: activeConversation.id
+      conversationId: activeConversation.id,
+      selectedAnnotationRequest: explicitSelectedAnnotationRequest
+        ? {
+            color: contextRef.current.selectedAnnotationColor,
+            pageNumber: replayPageNumber,
+            rects: [],
+            text: selectedText ?? ''
+          }
+        : undefined
     })
     setActiveTab('ai')
     setStatus(`正在使用 ${readyProvider.label} 重新发送共读对话`)

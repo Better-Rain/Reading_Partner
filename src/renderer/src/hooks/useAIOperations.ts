@@ -51,6 +51,7 @@ export const useAIOperations = ({
           selectedText: draft.selectedText,
           color: draft.color,
           note: `模型：${model}\n\n${normalizeAIAssistedNote(draft.note)}`,
+          rectsJson: draft.rects?.length ? JSON.stringify(draft.rects) : null,
           authorName: 'AI'
         })
       )

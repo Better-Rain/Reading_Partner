@@ -12,6 +12,7 @@ import { parseDictionaryCsv } from './dictionaryImport'
 import { KeyStore } from './keyStore'
 import { extractPdfText, PdfTextExtractionCancelledError } from './pdfText'
 import { resolveStarDictIfoPath, StarDictSource } from './stardict'
+import { hasExplicitAnnotationIntent } from '../shared/aiAnnotationIntent'
 import {
   AIStreamEvent,
   AnnotationRecord,
@@ -50,6 +51,16 @@ const stripAIReasoningDirectives = (value: string): string =>
 
 const stripAIControlDirectives = (value: string): string =>
   stripAIAnnotationDirectives(stripAIReasoningDirectives(value))
+
+const buildExplicitSelectedAnnotationPrompt = (pageNumber: number, selectedText: string): string =>
+  [
+    '本轮用户明确要求把当前选区创建为 PDF 批注。',
+    '你必须在回答末尾追加一个且仅一个 RP_ANNOTATIONS HTML 注释块，且至少包含 1 条批注。',
+    `第一条批注必须使用 pageNumber ${pageNumber}，selectedText 必须对应下面的当前选区。`,
+    'visible answer 可以简短说明批注要点，但真正写入 PDF 的批注内容必须放在 RP_ANNOTATIONS 的 note 字段。',
+    `当前选区（第 ${pageNumber} 页）：`,
+    selectedText
+  ].join('\n')
 
 const createAIRequestController = (requestId: string): AbortController => {
   aiRequestControllers.get(requestId)?.abort()
@@ -613,6 +624,8 @@ const registerIpc = (): void => {
     const provider = database.getAIProvider(input.providerId)
     const apiKey = keyStore.get(provider.apiKeyRef)
     const selectedText = input.selectedText?.trim() || null
+    const explicitSelectedAnnotationRequest =
+      Boolean(selectedText) && hasExplicitAnnotationIntent(input.message)
     database.createAIChatMessage({
       conversationId: input.conversationId,
       role: 'user',
@@ -649,6 +662,14 @@ const registerIpc = (): void => {
         role: 'user',
         content: `当前阅读位置：第 ${input.pageNumber} 页。\n本轮可用文档片段（当前页片段优先，其它页仅作补充）：\n${contextMessage}`
       },
+      ...(explicitSelectedAnnotationRequest && selectedText
+        ? [
+            {
+              role: 'user' as const,
+              content: buildExplicitSelectedAnnotationPrompt(input.pageNumber, selectedText)
+            }
+          ]
+        : []),
       ...recentMessages.map<ChatMessage>((message) => ({
         role: message.role,
         content:

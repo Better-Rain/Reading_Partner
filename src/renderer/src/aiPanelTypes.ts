@@ -26,6 +26,12 @@ export type AIRunState = {
     rects: AnnotationRect[]
     text: string
   }
+  selectedAnnotationRequest?: {
+    color: string
+    pageNumber: number
+    rects: AnnotationRect[]
+    text: string
+  }
   vocabularyId?: string
 }
 
