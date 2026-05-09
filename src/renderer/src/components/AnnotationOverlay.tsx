@@ -348,8 +348,7 @@ export function AnnotationOverlay({
           onClick={(event) => pinTooltip(annotation, event)}
           style={{
             top: 12 + index * 30,
-            backgroundColor:
-              annotation.type === 'bookmark' ? undefined : annotation.color ?? undefined
+            backgroundColor: annotation.color ?? undefined
           }}
         />
       ))}

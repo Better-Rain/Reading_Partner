@@ -47,7 +47,7 @@ export const defaultAnnotationFilters: AnnotationFilterState = {
   categories: [],
   author: 'all',
   pageScope: 'all',
-  sort: 'page',
+  sort: 'newest',
   showOnPdf: true,
   syncToPdf: false
 }
@@ -142,12 +142,21 @@ const sortAnnotations = (
   sortMode: AnnotationSortMode
 ): AnnotationRecord[] =>
   [...annotationsToSort].sort((first, second) => {
+    const firstUpdatedAt = first.updatedAt || first.createdAt
+    const secondUpdatedAt = second.updatedAt || second.createdAt
+
     if (sortMode === 'newest') {
-      return second.createdAt.localeCompare(first.createdAt)
+      return (
+        secondUpdatedAt.localeCompare(firstUpdatedAt) ||
+        second.createdAt.localeCompare(first.createdAt)
+      )
     }
 
     if (sortMode === 'oldest') {
-      return first.createdAt.localeCompare(second.createdAt)
+      return (
+        firstUpdatedAt.localeCompare(secondUpdatedAt) ||
+        first.createdAt.localeCompare(second.createdAt)
+      )
     }
 
     if (sortMode === 'type') {
@@ -287,11 +296,7 @@ export function NotesPanel({
   }
 
   const saveEditing = (annotation: AnnotationRecord): void => {
-    onUpdateAnnotation(
-      annotation.id,
-      editingNote,
-      annotation.type === 'bookmark' ? annotation.color : editingColor
-    )
+    onUpdateAnnotation(annotation.id, editingNote, editingColor)
     cancelEditing()
   }
 
@@ -451,9 +456,9 @@ export function NotesPanel({
                     updateFilters({ sort: event.target.value as AnnotationSortMode })
                   }
                 >
-                  <option value="page">按页码</option>
                   <option value="newest">最新优先</option>
                   <option value="oldest">最早优先</option>
+                  <option value="page">按页码</option>
                   <option value="type">按类型</option>
                 </select>
               </label>
@@ -524,20 +529,18 @@ export function NotesPanel({
                           value={editingNote}
                           onChange={(event) => setEditingNote(event.target.value)}
                         />
-                        {annotation.type !== 'bookmark' && (
-                          <div className="annotation-color-editor">
-                            <span>颜色</span>
-                            {colorPresets.map((preset) => (
-                              <button
-                                className={editingColor === preset.value ? 'color-swatch active' : 'color-swatch'}
-                                key={preset.value}
-                                onClick={() => setEditingColor(preset.value)}
-                                style={{ backgroundColor: preset.value }}
-                                title={preset.label}
-                              />
-                            ))}
-                          </div>
-                        )}
+                        <div className="annotation-color-editor">
+                          <span>颜色</span>
+                          {colorPresets.map((preset) => (
+                            <button
+                              className={editingColor === preset.value ? 'color-swatch active' : 'color-swatch'}
+                              key={preset.value}
+                              onClick={() => setEditingColor(preset.value)}
+                              style={{ backgroundColor: preset.value }}
+                              title={preset.label}
+                            />
+                          ))}
+                        </div>
                       </>
                     ) : annotation.note ? (
                       <MarkdownContent text={annotation.note} />
