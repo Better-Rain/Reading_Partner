@@ -55,8 +55,9 @@ const stripAIControlDirectives = (value: string): string =>
 const buildExplicitSelectedAnnotationPrompt = (pageNumber: number, selectedText: string): string =>
   [
     '本轮用户明确要求把当前选区创建为 PDF 批注。',
-    '你必须在回答末尾追加一个且仅一个 RP_ANNOTATIONS HTML 注释块，且至少包含 1 条批注。',
+    '你必须在回答末尾追加一个且仅一个 RP_ANNOTATIONS HTML 注释块，且至少包含 1 条批注，最多 5 条。',
     `第一条批注必须使用 pageNumber ${pageNumber}，selectedText 必须对应下面的当前选区。`,
+    '如果这段内容里有值得单独解释的术语、概念、段落观点或页边总结，可以继续补充其它批注并自行选择 scope 与颜色。',
     'visible answer 可以简短说明批注要点，但真正写入 PDF 的批注内容必须放在 RP_ANNOTATIONS 的 note 字段。',
     `当前选区（第 ${pageNumber} 页）：`,
     selectedText

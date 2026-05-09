@@ -3,7 +3,7 @@ import type { AnnotationRect } from './annotationGeometry'
 
 export type AIAssistedAnnotation = {
   pageNumber: number
-  scope: 'paragraph' | 'vocabulary' | 'note'
+  scope: 'paragraph' | 'vocabulary' | 'margin' | 'summary' | 'question' | 'note'
   selectedText: string | null
   note: string
   color: string
@@ -11,7 +11,7 @@ export type AIAssistedAnnotation = {
 }
 
 export const aiDefaultAnnotationColor = '#c7d2fe'
-export const maxAIAssistedAnnotations = 2
+export const maxAIAssistedAnnotations = 5
 
 export const normalizeAIAssistedNote = (note: string): string => {
   let normalized = note.trim()
@@ -31,11 +31,32 @@ const normalizeAIAssistedColor = (value: unknown, allowedColors: string[]): stri
   }
 
   const normalized = value.trim().toLocaleLowerCase()
+  const isReadableHexColor = /^#[0-9a-f]{6}$/i.test(normalized)
+
+  if (isReadableHexColor) {
+    return normalized
+  }
+
   const allowed = [aiDefaultAnnotationColor, ...allowedColors]
     .map((color) => color.toLocaleLowerCase())
     .includes(normalized)
 
   return allowed ? value.trim() : aiDefaultAnnotationColor
+}
+
+const normalizeAIAssistedScope = (value: unknown): AIAssistedAnnotation['scope'] => {
+  if (
+    value === 'paragraph' ||
+    value === 'vocabulary' ||
+    value === 'margin' ||
+    value === 'summary' ||
+    value === 'question' ||
+    value === 'note'
+  ) {
+    return value
+  }
+
+  return 'note'
 }
 
 const toLimitedText = (value: unknown, maxLength: number): string | null => {
@@ -97,10 +118,7 @@ export const extractAIAssistedAnnotations = (
 
         annotations.push({
           pageNumber,
-          scope:
-            draft.scope === 'paragraph' || draft.scope === 'vocabulary'
-              ? draft.scope
-              : 'note',
+          scope: normalizeAIAssistedScope(draft.scope),
           selectedText: toLimitedText(draft.selectedText, 500),
           note,
           color: normalizeAIAssistedColor(draft.color, allowedColors)
