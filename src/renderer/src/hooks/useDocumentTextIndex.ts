@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
-import type { DocumentRecord, DocumentTextIndexEvent } from '../../../shared/types'
+import type {
+  DocumentRecord,
+  DocumentTextIndexEvent,
+  DocumentTextIndexResult
+} from '../../../shared/types'
 
 export type TextIndexRunState = {
   documentId: string
@@ -14,6 +18,21 @@ type UseDocumentTextIndexParams = {
   refreshLibrary: () => Promise<void>
   setActiveDocument: Dispatch<SetStateAction<DocumentRecord | null>>
   setStatus: Dispatch<SetStateAction<string>>
+}
+
+const getTextIndexReadyStatus = (
+  result: Pick<DocumentTextIndexResult, 'pageCount' | 'pagesIndexed' | 'chunksIndexed' | 'skipped'>,
+  fallbackPageCount?: number
+): string => {
+  const pageCount = result.pageCount ?? fallbackPageCount ?? result.pagesIndexed
+
+  if (result.pagesIndexed > 0 && result.chunksIndexed === 0) {
+    return `共 ${pageCount} 页，未检测到可抽取文字；这可能是扫描图片版 PDF，需要 OCR 后才能选择、搜索正文。`
+  }
+
+  return result.skipped
+    ? `共 ${pageCount} 页，文本索引已就绪`
+    : `文本索引完成：${result.pagesIndexed} 页 / ${result.chunksIndexed} 个片段`
 }
 
 export const useDocumentTextIndex = ({
@@ -80,11 +99,7 @@ export const useDocumentTextIndex = ({
       active?.id === event.documentId ? { ...active, pageCount: event.result.pageCount } : active
     )
     await refreshLibraryRef.current()
-    setStatus(
-      event.result.skipped
-        ? `共 ${event.result.pageCount ?? '-'} 页，文本索引已就绪`
-        : `文本索引完成：${event.result.pagesIndexed} 页 / ${event.result.chunksIndexed} 个片段`
-    )
+    setStatus(getTextIndexReadyStatus(event.result))
   }
 
   useEffect(() => {
@@ -104,7 +119,12 @@ export const useDocumentTextIndex = ({
         current.pageCount === expectedPageCount &&
         current.pagesIndexed >= expectedPageCount
       ) {
-        setStatus(`共 ${expectedPageCount} 页，文本索引已就绪`)
+        setStatus(
+          getTextIndexReadyStatus({
+            ...current,
+            skipped: true
+          })
+        )
         return
       }
 
@@ -120,11 +140,7 @@ export const useDocumentTextIndex = ({
         active?.id === result.documentId ? { ...active, pageCount: result.pageCount } : active
       )
       await refreshLibraryRef.current()
-      setStatus(
-        result.skipped
-          ? `共 ${result.pageCount ?? expectedPageCount} 页，文本索引已就绪`
-          : `文本索引完成：${result.pagesIndexed} 页 / ${result.chunksIndexed} 个片段`
-      )
+      setStatus(getTextIndexReadyStatus(result, expectedPageCount))
     } catch (error) {
       setStatus(`文本索引失败：${error instanceof Error ? error.message : String(error)}`)
     }

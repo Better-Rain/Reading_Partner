@@ -179,7 +179,7 @@ npm run icons
 
 ## 相关文档
 
-- [版本说明](docs/RELEASE_NOTES_0.2.0.md)
+- [版本说明 0.3.0](docs/RELEASE_NOTES_0.3.0.md)
 - [用户配置指南](docs/USER_SETUP_GUIDE.md)
 - [架构说明](docs/ARCHITECTURE.md)
 - [开发路线图](docs/ROADMAP.md)

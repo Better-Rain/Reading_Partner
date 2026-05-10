@@ -1,11 +1,14 @@
+import { useEffect, useRef, useState } from 'react'
 import {
   ChevronLeft,
   ChevronRight,
   Eye,
+  Files,
   Hand,
   Minus,
   MousePointer2,
   Plus,
+  ScanText,
   X
 } from 'lucide-react'
 import type { AnnotationColorPreset } from './NotesPanel'
@@ -15,6 +18,7 @@ type ReaderToolbarProps = {
   annotationInteractionMode: AnnotationInteractionMode
   colorPresets: AnnotationColorPreset[]
   hasDocument: boolean
+  isOcrRunning: boolean
   isPanMode: boolean
   pageCount: number
   pageNumber: number
@@ -23,8 +27,11 @@ type ReaderToolbarProps = {
   isTextIndexing: boolean
   title: string
   onAnnotationInteractionModeChange: (mode: AnnotationInteractionMode) => void
+  onCancelOcr: () => void
   onColorChange: (color: string) => void
   onNextPage: () => void
+  onOcrCurrentPage: () => void
+  onOcrDocument: () => void
   onPageNumberChange: (pageNumber: number) => void
   onPreviousPage: () => void
   onCancelTextIndex: () => void
@@ -37,6 +44,7 @@ export function ReaderToolbar({
   annotationInteractionMode,
   colorPresets,
   hasDocument,
+  isOcrRunning,
   isPanMode,
   pageCount,
   pageNumber,
@@ -45,8 +53,11 @@ export function ReaderToolbar({
   isTextIndexing,
   title,
   onAnnotationInteractionModeChange,
+  onCancelOcr,
   onColorChange,
   onNextPage,
+  onOcrCurrentPage,
+  onOcrDocument,
   onPageNumberChange,
   onPreviousPage,
   onCancelTextIndex,
@@ -54,11 +65,50 @@ export function ReaderToolbar({
   onZoomIn,
   onZoomOut
 }: ReaderToolbarProps): JSX.Element {
+  const statusViewportRef = useRef<HTMLSpanElement | null>(null)
+  const statusTextRef = useRef<HTMLSpanElement | null>(null)
+  const [statusOverflows, setStatusOverflows] = useState(false)
+
+  useEffect(() => {
+    const viewport = statusViewportRef.current
+    const text = statusTextRef.current
+
+    if (!viewport || !text) {
+      return
+    }
+
+    const updateOverflow = (): void => {
+      setStatusOverflows(text.scrollWidth > viewport.clientWidth + 2)
+    }
+    const observer = new ResizeObserver(updateOverflow)
+
+    updateOverflow()
+    observer.observe(viewport)
+    observer.observe(text)
+
+    return () => observer.disconnect()
+  }, [status])
+
   return (
     <header className="reader-toolbar">
-      <div>
+      <div className="reader-toolbar-title">
         <strong>{title}</strong>
-        <span>{status}</span>
+        <span
+          className={statusOverflows ? 'reader-toolbar-status is-overflowing' : 'reader-toolbar-status'}
+          ref={statusViewportRef}
+          title={status}
+        >
+          <span className="reader-toolbar-status-track">
+            <span className="reader-toolbar-status-text" ref={statusTextRef}>
+              {status}
+            </span>
+            {statusOverflows && (
+              <span className="reader-toolbar-status-text" aria-hidden="true">
+                {status}
+              </span>
+            )}
+          </span>
+        </span>
       </div>
       <div className="toolbar-controls">
         <div className="annotation-mode-toggle" aria-label="批注交互模式">
@@ -139,6 +189,27 @@ export function ReaderToolbar({
         >
           <Hand size={18} />
         </button>
+        <button
+          className={isOcrRunning ? 'icon-button active' : 'icon-button'}
+          disabled={!hasDocument || isOcrRunning || isTextIndexing}
+          title="OCR 当前页"
+          onClick={onOcrCurrentPage}
+        >
+          <ScanText size={18} />
+        </button>
+        <button
+          className={isOcrRunning ? 'icon-button active' : 'icon-button'}
+          disabled={!hasDocument || isOcrRunning || isTextIndexing}
+          title="OCR 全文"
+          onClick={onOcrDocument}
+        >
+          <Files size={18} />
+        </button>
+        {isOcrRunning && (
+          <button className="icon-button" title="取消 OCR" onClick={onCancelOcr}>
+            <X size={18} />
+          </button>
+        )}
         {isTextIndexing && (
           <button className="icon-button" title="取消文本索引" onClick={onCancelTextIndex}>
             <X size={18} />

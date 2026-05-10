@@ -75,7 +75,7 @@ const joinTextItems = (items: PdfTextItem[]): string => {
   return normalizeText(output)
 }
 
-const splitPageIntoChunks = (pageNumber: number, text: string): ExtractedPdfChunk[] => {
+export const splitPageIntoChunks = (pageNumber: number, text: string): ExtractedPdfChunk[] => {
   if (!text) {
     return []
   }

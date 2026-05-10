@@ -6,6 +6,7 @@ import {
   CreateAnnotationInput,
   CreateVocabularyInput,
   DocumentTextIndexEvent,
+  OcrPageTextInput,
   ReadingPartnerApi,
   RunAIChatInput,
   RunAIActionInput,
@@ -27,6 +28,10 @@ const api: ReadingPartnerApi = {
   getDocumentTextIndexStatus: (documentId: string) =>
     ipcRenderer.invoke('documents:textIndexStatus', documentId),
   indexDocumentText: (documentId: string) => ipcRenderer.invoke('documents:indexText', documentId),
+  ocrPageText: (input: OcrPageTextInput) =>
+    ipcRenderer.invoke('documents:ocrPageText', input),
+  getDocumentPageOcrLayout: (documentId: string, pageNumber: number) =>
+    ipcRenderer.invoke('documents:pageOcrLayout', documentId, pageNumber),
   cancelDocumentTextIndex: (documentId: string) =>
     ipcRenderer.invoke('documents:cancelTextIndex', documentId),
   onDocumentTextIndexEvent: (callback: (event: DocumentTextIndexEvent) => void) => {

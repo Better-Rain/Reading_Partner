@@ -3,12 +3,13 @@ import type { RefObject, MouseEvent as ReactMouseEvent, WheelEvent } from 'react
 import type { Source } from 'react-pdf/dist/shared/types.js'
 import { Document, Page } from 'react-pdf'
 import { FileText, Upload } from 'lucide-react'
-import type { AnnotationRecord } from '../../../shared/types'
+import type { AnnotationRecord, OcrPageLayout } from '../../../shared/types'
 import {
   AnnotationInteractionMode,
   AnnotationOverlay,
   TemporarySearchHighlight
 } from './AnnotationOverlay'
+import { OcrTextLayer } from './OcrTextLayer'
 
 type ReaderSurfaceProps = {
   annotations: AnnotationRecord[]
@@ -16,6 +17,7 @@ type ReaderSurfaceProps = {
   interactionMode: AnnotationInteractionMode
   isPanMode: boolean
   isPanning: boolean
+  ocrLayout: OcrPageLayout | null
   pageNumber: number
   pdfError: string | null
   readerSurfaceRef: RefObject<HTMLDivElement | null>
@@ -44,6 +46,7 @@ export function ReaderSurface({
   interactionMode,
   isPanMode,
   isPanning,
+  ocrLayout,
   pageNumber,
   pdfError,
   readerSurfaceRef,
@@ -155,6 +158,7 @@ export function ReaderSurface({
                   onLoadError={(error) => onPageLoadError(error.message)}
                   onRenderSuccess={onPageRenderSuccess}
                 />
+                <OcrTextLayer layout={ocrLayout} scale={renderScale} />
                 <AnnotationOverlay
                   annotations={annotations}
                   interactionMode={interactionMode}

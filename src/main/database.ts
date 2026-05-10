@@ -21,13 +21,16 @@ import {
   DocumentTextIndexResult,
   DocumentTextIndexStatus,
   DocumentRecord,
+  OcrPageLayout,
+  OcrTextLine,
+  OcrPageTextResult,
   UpdateAnnotationInput,
   UpdateAIConversationTitleInput,
   UpdateVocabularyDefinitionInput,
   UpsertAIProviderInput,
   VocabularyRecord
 } from '../shared/types'
-import { ExtractedPdfChunk, ExtractedPdfPage } from './pdfText'
+import { ExtractedPdfChunk, ExtractedPdfPage, splitPageIntoChunks } from './pdfText'
 
 const now = (): string => new Date().toISOString()
 const require = createRequire(import.meta.url)
@@ -154,6 +157,15 @@ type DocumentTextIndexStatusRow = {
   indexed_at: string | null
 }
 
+type DocumentPageRow = {
+  document_id: string
+  page_number: number
+  text: string
+  char_count: number
+  indexed_at: string
+  ocr_layout_json: string | null
+}
+
 type DocumentChunkRow = {
   id: string
   document_id: string
@@ -172,6 +184,61 @@ const toDocument = (row: DocumentRow): DocumentRecord => ({
   createdAt: row.created_at,
   lastOpenedAt: row.last_opened_at
 })
+
+const parseOcrPageLayout = (
+  documentId: string,
+  pageNumber: number,
+  value: string | null
+): OcrPageLayout | null => {
+  if (!value) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown
+
+    if (!parsed || typeof parsed !== 'object') {
+      return null
+    }
+
+    const lines = (parsed as { lines?: unknown }).lines
+
+    if (!Array.isArray(lines)) {
+      return null
+    }
+
+    const normalizedLines = lines
+      .map((item) => {
+        if (!item || typeof item !== 'object') {
+          return null
+        }
+
+        const line = item as Partial<Record<keyof OcrTextLine, unknown>>
+        const text = typeof line.text === 'string' ? line.text.trim() : ''
+        const left = Number(line.left)
+        const top = Number(line.top)
+        const width = Number(line.width)
+        const height = Number(line.height)
+
+        if (!text || ![left, top, width, height].every(Number.isFinite) || width <= 0 || height <= 0) {
+          return null
+        }
+
+        return { text, left, top, width, height }
+      })
+      .filter((line): line is OcrTextLine => Boolean(line))
+
+    return normalizedLines.length
+      ? {
+          documentId,
+          pageNumber,
+          lines: normalizedLines
+        }
+      : null
+  } catch {
+    return null
+  }
+}
 
 const toAnnotation = (row: AnnotationRow): AnnotationRecord => ({
   id: row.id,
@@ -477,10 +544,51 @@ export class ReadingPartnerDatabase {
     chunks: ExtractedPdfChunk[]
   }): DocumentTextIndexResult {
     const timestamp = now()
+    const existingPages = this.query<{
+      page_number: number
+      text: string
+      ocr_layout_json: string | null
+    }>(
+      `select page_number, text, ocr_layout_json
+       from document_pages
+       where document_id = ? and char_count > 0`,
+      [input.documentId]
+    )
+    const existingChunks = this.query<DocumentChunkRow>(
+      `select id, document_id, page_number, chunk_index, text
+       from document_chunks
+       where document_id = ?
+       order by page_number, chunk_index`,
+      [input.documentId]
+    )
+    const existingPageText = new Map(existingPages.map((page) => [page.page_number, page.text]))
+    const existingPageLayout = new Map(
+      existingPages.map((page) => [page.page_number, page.ocr_layout_json])
+    )
+    const preservedPageNumbers = new Set(
+      input.pages
+        .filter((page) => !page.text && existingPageText.has(page.pageNumber))
+        .map((page) => page.pageNumber)
+    )
+    const pages = input.pages.map((page) =>
+      preservedPageNumbers.has(page.pageNumber)
+        ? { ...page, text: existingPageText.get(page.pageNumber) ?? page.text }
+        : page
+    )
+    const chunks = [
+      ...input.chunks.filter((chunk) => !preservedPageNumbers.has(chunk.pageNumber)),
+      ...existingChunks
+        .filter((chunk) => preservedPageNumbers.has(chunk.page_number))
+        .map<ExtractedPdfChunk>((chunk) => ({
+          pageNumber: chunk.page_number,
+          chunkIndex: chunk.chunk_index,
+          text: chunk.text
+        }))
+    ]
     const pageStatement = this.db.prepare(
       `insert into document_pages (
-        document_id, page_number, text, char_count, indexed_at
-      ) values (?, ?, ?, ?, ?)`
+        document_id, page_number, text, char_count, indexed_at, ocr_layout_json
+      ) values (?, ?, ?, ?, ?, ?)`
     )
     const chunkStatement = this.db.prepare(
       `insert into document_chunks (
@@ -498,17 +606,20 @@ export class ReadingPartnerDatabase {
       this.db.run('delete from document_chunks where document_id = ?', [input.documentId])
       this.db.run('delete from document_pages where document_id = ?', [input.documentId])
 
-      for (const page of input.pages) {
+      for (const page of pages) {
         pageStatement.run([
           input.documentId,
           page.pageNumber,
           page.text,
           page.text.length,
-          timestamp
+          timestamp,
+          preservedPageNumbers.has(page.pageNumber)
+            ? existingPageLayout.get(page.pageNumber) ?? null
+            : null
         ])
       }
 
-      for (const chunk of input.chunks) {
+      for (const chunk of chunks) {
         chunkStatement.run([
           randomUUID(),
           input.documentId,
@@ -535,6 +646,102 @@ export class ReadingPartnerDatabase {
       ...this.getDocumentTextIndexStatus(input.documentId),
       skipped: false
     }
+  }
+
+  upsertDocumentPageText(input: {
+    documentId: string
+    layout: OcrPageLayout | null
+    pageNumber: number
+    text: string
+  }): OcrPageTextResult {
+    const document = this.getDocument(input.documentId)
+    const pageNumber = Math.max(1, Math.floor(input.pageNumber))
+    const timestamp = now()
+    const text = input.text.trim()
+    const chunks = splitPageIntoChunks(pageNumber, text)
+    const pageCount =
+      typeof document.pageCount === 'number' && document.pageCount > 0
+        ? Math.max(document.pageCount, pageNumber)
+        : pageNumber
+    const chunkStatement = this.db.prepare(
+      `insert into document_chunks (
+        id, document_id, page_number, chunk_index, text, char_count, indexed_at
+      ) values (?, ?, ?, ?, ?, ?, ?)`
+    )
+
+    this.db.run('begin transaction')
+
+    try {
+      this.db.run('update documents set page_count = ? where id = ?', [
+        pageCount,
+        input.documentId
+      ])
+      this.db.run('delete from document_chunks where document_id = ? and page_number = ?', [
+        input.documentId,
+        pageNumber
+      ])
+      this.db.run(
+        `insert into document_pages (
+          document_id, page_number, text, char_count, indexed_at, ocr_layout_json
+        ) values (?, ?, ?, ?, ?, ?)
+        on conflict(document_id, page_number) do update set
+          text = excluded.text,
+          char_count = excluded.char_count,
+          indexed_at = excluded.indexed_at,
+          ocr_layout_json = excluded.ocr_layout_json`,
+        [
+          input.documentId,
+          pageNumber,
+          text,
+          text.length,
+          timestamp,
+          input.layout ? JSON.stringify(input.layout) : null
+        ]
+      )
+
+      for (const chunk of chunks) {
+        chunkStatement.run([
+          randomUUID(),
+          input.documentId,
+          pageNumber,
+          chunk.chunkIndex,
+          chunk.text,
+          chunk.text.length,
+          timestamp
+        ])
+      }
+
+      this.db.run('commit')
+    } catch (error) {
+      this.db.run('rollback')
+      throw error
+    } finally {
+      chunkStatement.free()
+    }
+
+    this.persist()
+
+    return {
+      ...this.getDocumentTextIndexStatus(input.documentId),
+      pageNumber,
+      charCount: text.length,
+      pageChunkCount: chunks.length,
+      layout: input.layout
+    }
+  }
+
+  getDocumentPageOcrLayout(documentId: string, pageNumber: number): OcrPageLayout | null {
+    this.getDocument(documentId)
+    const normalizedPageNumber = Math.max(1, Math.floor(pageNumber))
+    const row = this.get<DocumentPageRow>(
+      `select *
+       from document_pages
+       where document_id = ? and page_number = ?
+       limit 1`,
+      [documentId, normalizedPageNumber]
+    )
+
+    return parseOcrPageLayout(documentId, normalizedPageNumber, row?.ocr_layout_json ?? null)
   }
 
   searchDocumentText(documentId: string, query: string, limit = 30): DocumentSearchResult[] {
@@ -1581,6 +1788,7 @@ export class ReadingPartnerDatabase {
         text text not null,
         char_count integer not null,
         indexed_at text not null,
+        ocr_layout_json text,
         primary key(document_id, page_number)
       );
 
@@ -1695,6 +1903,7 @@ export class ReadingPartnerDatabase {
     this.ensureColumn('annotations', 'author_name', "text not null default 'Reader'")
     this.ensureColumn('annotations', 'vocabulary_id', 'text')
     this.ensureColumn('documents', 'last_page_number', 'integer not null default 1')
+    this.ensureColumn('document_pages', 'ocr_layout_json', 'text')
     this.ensureColumn('vocabulary', 'annotation_id', 'text')
     this.db.run('create index if not exists idx_annotations_vocabulary on annotations(vocabulary_id)')
     this.db.run('create index if not exists idx_vocabulary_annotation on vocabulary(annotation_id)')

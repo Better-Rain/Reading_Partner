@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, WheelEvent } from 'react'
+import { PanelRightClose, PanelRightOpen } from 'lucide-react'
+import { pdfjs } from 'react-pdf'
 import type { Source } from 'react-pdf/dist/shared/types.js'
 import {
   AIProviderRecord,
@@ -7,6 +9,7 @@ import {
   DocumentSearchResult,
   DocumentRecord,
   OpenPdfResult,
+  OcrPageLayout,
   ProviderKeyStatus,
   DictionarySourceRecord,
   VocabularyRecord
@@ -59,9 +62,34 @@ type SelectionState = {
   rects: AnnotationRect[]
 }
 
+type PdfJsViewport = {
+  width: number
+  height: number
+}
+
+type PdfJsRenderTask = {
+  promise: Promise<void>
+}
+
+type PdfJsPage = {
+  cleanup: () => void
+  getViewport: (options: { scale: number }) => PdfJsViewport
+  render: (options: {
+    canvasContext: CanvasRenderingContext2D
+    viewport: PdfJsViewport
+  }) => PdfJsRenderTask
+}
+
+type PdfJsDocument = {
+  destroy: () => Promise<void>
+  getPage: (pageNumber: number) => Promise<PdfJsPage>
+  numPages: number
+}
+
 const minScale = 0.75
 const maxScale = 3
 const scaleStep = 0.12
+const ocrRenderScale = 2
 
 const annotationColorPresets: AnnotationColorPreset[] = [
   { label: '黄色', value: '#f8d86a' },
@@ -107,6 +135,7 @@ function App(): JSX.Element {
   const [activeSearchTarget, setActiveSearchTarget] = useState<ActiveSearchTarget | null>(null)
   const [temporarySearchHighlight, setTemporarySearchHighlight] =
     useState<TemporarySearchHighlight | null>(null)
+  const [ocrPageLayout, setOcrPageLayout] = useState<OcrPageLayout | null>(null)
   const [selection, setSelection] = useState<SelectionState | null>(null)
   const [pageNumber, setPageNumber] = useState(1)
   const [pageCount, setPageCount] = useState(0)
@@ -114,6 +143,8 @@ function App(): JSX.Element {
   const [isPanMode, setIsPanMode] = useState(false)
   const [isPanning, setIsPanning] = useState(false)
   const [isWindowMaximized, setIsWindowMaximized] = useState(false)
+  const [isLibraryCollapsed, setIsLibraryCollapsed] = useState(false)
+  const [isInspectorCollapsed, setIsInspectorCollapsed] = useState(false)
   const [annotationInteractionMode, setAnnotationInteractionMode] =
     useState<AnnotationInteractionMode>('inspect')
   const [selectedAnnotationColor, setSelectedAnnotationColor] = useState(annotationColorPresets[0].value)
@@ -125,9 +156,11 @@ function App(): JSX.Element {
   const [annotationFilters, setAnnotationFilters] =
     useState<AnnotationFilterState>(defaultAnnotationFilters)
   const [status, setStatus] = useState('打开一本 PDF 开始阅读')
+  const [isOcrRunning, setIsOcrRunning] = useState(false)
   const readerSurfaceRef = useRef<HTMLDivElement | null>(null)
   const panStateRef = useRef<PanState | null>(null)
   const suppressSelectionRef = useRef(false)
+  const cancelOcrRef = useRef(false)
   const loadedPdfRef = useRef<{ documentId: string | null; pageCount: number } | null>(null)
   const { requestReaderViewportReset, resetReaderViewportAfterRender } =
     useReaderViewportReset(readerSurfaceRef)
@@ -224,6 +257,31 @@ function App(): JSX.Element {
 
     return () => window.clearTimeout(timeout)
   }, [activeDocument?.id, pageCount, pageNumber])
+
+  useEffect(() => {
+    if (!activeDocument) {
+      setOcrPageLayout(null)
+      return
+    }
+
+    let cancelled = false
+    void window.readingPartner
+      .getDocumentPageOcrLayout(activeDocument.id, pageNumber)
+      .then((layout) => {
+        if (!cancelled) {
+          setOcrPageLayout(layout)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setOcrPageLayout(null)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeDocument?.id, pageNumber])
 
   const refreshLibrary = async (): Promise<void> => {
     const list = await window.readingPartner.listDocuments()
@@ -491,11 +549,180 @@ function App(): JSX.Element {
     setStatus(`已导入 ${result.document.title}`)
   }
 
+  const loadOcrPdfDocument = async (): Promise<PdfJsDocument> => {
+    if (!pdfUrl) {
+      throw new Error('PDF 尚未加载')
+    }
+
+    const task = pdfjs.getDocument(pdfUrl) as { promise: Promise<PdfJsDocument> }
+    return task.promise
+  }
+
+  const renderOcrPageImage = async (
+    pdfDocument: PdfJsDocument,
+    targetPageNumber: number
+  ): Promise<string> => {
+    const page = await pdfDocument.getPage(targetPageNumber)
+    const viewport = page.getViewport({ scale: ocrRenderScale })
+    const canvas = document.createElement('canvas')
+    const context = canvas.getContext('2d')
+
+    if (!context) {
+      page.cleanup()
+      throw new Error('无法创建 OCR 渲染画布')
+    }
+
+    canvas.width = Math.max(1, Math.floor(viewport.width))
+    canvas.height = Math.max(1, Math.floor(viewport.height))
+
+    try {
+      await page.render({
+        canvasContext: context,
+        viewport
+      }).promise
+
+      return canvas.toDataURL('image/png')
+    } finally {
+      canvas.width = 1
+      canvas.height = 1
+      page.cleanup()
+    }
+  }
+
+  const runOcrForRenderedPage = async (
+    pdfDocument: PdfJsDocument,
+    targetPageNumber: number
+  ) => {
+    if (!activeDocument) {
+      throw new Error('请先打开 PDF')
+    }
+
+    return window.readingPartner.ocrPageText({
+      documentId: activeDocument.id,
+      imageScale: ocrRenderScale,
+      pageNumber: targetPageNumber,
+      imageDataUrl: await renderOcrPageImage(pdfDocument, targetPageNumber)
+    })
+  }
+
+  const finishOcrRun = async (): Promise<void> => {
+    await refreshLibrary()
+    if (!activeDocument) {
+      return
+    }
+
+    const updated = await window.readingPartner.getDocumentTextIndexStatus(activeDocument.id)
+    setActiveDocument((current) =>
+      current?.id === activeDocument.id
+        ? { ...current, pageCount: updated.pageCount ?? current.pageCount }
+        : current
+    )
+  }
+
+  const runCurrentPageOcr = async (): Promise<void> => {
+    if (!activeDocument) {
+      setStatus('请先打开 PDF')
+      return
+    }
+
+    if (textIndexRun?.documentId === activeDocument.id) {
+      setStatus('请等待当前文本索引任务完成后再 OCR')
+      return
+    }
+
+    let pdfDocument: PdfJsDocument | null = null
+    try {
+      setIsOcrRunning(true)
+      cancelOcrRef.current = false
+      setStatus(`正在 OCR 第 ${pageNumber} 页...`)
+      pdfDocument = await loadOcrPdfDocument()
+      const result = await runOcrForRenderedPage(pdfDocument, pageNumber)
+
+      await finishOcrRun()
+      setOcrPageLayout(result.layout)
+      setStatus(
+        `OCR 完成：第 ${result.pageNumber} 页，${result.charCount} 字 / ${result.pageChunkCount} 个片段`
+      )
+    } catch (error) {
+      setStatus(`OCR 失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      await pdfDocument?.destroy().catch(() => undefined)
+      setIsOcrRunning(false)
+    }
+  }
+
+  const runDocumentOcr = async (): Promise<void> => {
+    if (!activeDocument) {
+      setStatus('请先打开 PDF')
+      return
+    }
+
+    if (textIndexRun?.documentId === activeDocument.id) {
+      setStatus('请等待当前文本索引任务完成后再 OCR')
+      return
+    }
+
+    let pdfDocument: PdfJsDocument | null = null
+    let completed = 0
+
+    try {
+      setIsOcrRunning(true)
+      cancelOcrRef.current = false
+      pdfDocument = await loadOcrPdfDocument()
+      const totalPages = pdfDocument.numPages || pageCount || activeDocument.pageCount || 1
+
+      for (let nextPageNumber = 1; nextPageNumber <= totalPages; nextPageNumber += 1) {
+        if (cancelOcrRef.current) {
+          break
+        }
+
+        setStatus(`全文 OCR：${nextPageNumber} / ${totalPages} 页...`)
+        const result = await runOcrForRenderedPage(pdfDocument, nextPageNumber)
+        if (nextPageNumber === pageNumber) {
+          setOcrPageLayout(result.layout)
+        }
+        completed += 1
+        setStatus(
+          `全文 OCR：${nextPageNumber} / ${totalPages} 页，已写入 ${result.charCount} 字`
+        )
+      }
+
+      await finishOcrRun()
+      setStatus(
+        cancelOcrRef.current
+          ? `已取消全文 OCR，已完成 ${completed} 页`
+          : `全文 OCR 完成：${completed} 页`
+      )
+    } catch (error) {
+      setStatus(`全文 OCR 失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      await pdfDocument?.destroy().catch(() => undefined)
+      cancelOcrRef.current = false
+      setIsOcrRunning(false)
+    }
+  }
+
+  const cancelOcr = (): void => {
+    if (!isOcrRunning) {
+      return
+    }
+
+    cancelOcrRef.current = true
+    setStatus('正在取消 OCR，当前页结束后停止...')
+  }
+
   const captureSelection = (): void => {
     const selected = window.getSelection()
     const text = selected?.toString().trim()
 
     if (!text || text.length < 2 || !activeDocument) {
+      const textLayer = readerSurfaceRef.current?.querySelector<HTMLElement>(
+        '.react-pdf__Page__textContent'
+      )
+
+      if (activeDocument && textLayer && (textLayer.textContent?.trim().length ?? 0) === 0) {
+        setStatus('当前页没有可选文字层；这通常是扫描图片版 PDF，需要 OCR 后才能划词。')
+      }
       setSelection(null)
       setSelectionNoteDraft('')
       setIsSelectionNoteEditorOpen(false)
@@ -659,14 +886,24 @@ function App(): JSX.Element {
         onMinimize={() => void window.readingPartner.minimizeWindow()}
         onToggleMaximize={() => void toggleWindowMaximize()}
       />
-      <div className="app-layout">
+      <div
+        className={[
+          'app-layout',
+          isLibraryCollapsed ? 'is-library-collapsed' : '',
+          isInspectorCollapsed ? 'is-inspector-collapsed' : ''
+        ]
+          .filter(Boolean)
+          .join(' ')}
+      >
       <LibraryPanel
         activeDocumentId={activeDocument?.id ?? null}
         currentPageAnnotationCount={currentPageAnnotations.length}
         documents={documents}
+        isCollapsed={isLibraryCollapsed}
         pageNumber={pageNumber}
         onLoadDocument={(document) => void loadDocument(document)}
         onOpenPdf={() => void openPdf()}
+        onToggleCollapsed={() => setIsLibraryCollapsed((value) => !value)}
       />
 
       <main className="reader-column">
@@ -674,6 +911,7 @@ function App(): JSX.Element {
           annotationInteractionMode={annotationInteractionMode}
           colorPresets={annotationColorPresets}
           hasDocument={Boolean(activeDocument)}
+          isOcrRunning={isOcrRunning}
           isTextIndexing={Boolean(textIndexRun && textIndexRun.documentId === activeDocument?.id)}
           isPanMode={isPanMode}
           pageCount={pageCount}
@@ -684,6 +922,9 @@ function App(): JSX.Element {
           onAnnotationInteractionModeChange={setAnnotationInteractionMode}
           onColorChange={setSelectedAnnotationColor}
           onCancelTextIndex={() => void cancelCurrentDocumentTextIndex()}
+          onCancelOcr={cancelOcr}
+          onOcrDocument={() => void runDocumentOcr()}
+          onOcrCurrentPage={() => void runCurrentPageOcr()}
           onNextPage={() => {
             requestReaderViewportReset()
             setPageNumber((value) => Math.min(pageCount, value + 1))
@@ -707,6 +948,7 @@ function App(): JSX.Element {
           interactionMode={annotationInteractionMode}
           isPanMode={isPanMode}
           isPanning={isPanning}
+          ocrLayout={ocrPageLayout}
           pageNumber={pageNumber}
           pdfError={pdfError}
           readerSurfaceRef={readerSurfaceRef}
@@ -785,7 +1027,17 @@ function App(): JSX.Element {
         )}
       </main>
 
-      <aside className="inspector-panel">
+      <aside className={isInspectorCollapsed ? 'inspector-panel is-collapsed' : 'inspector-panel'}>
+        <button
+          className="panel-collapse-button"
+          title={isInspectorCollapsed ? '展开右侧功能区' : '折叠右侧功能区'}
+          onClick={() => setIsInspectorCollapsed((value) => !value)}
+        >
+          {isInspectorCollapsed ? <PanelRightOpen size={18} /> : <PanelRightClose size={18} />}
+        </button>
+
+        {!isInspectorCollapsed && (
+          <>
         <InspectorTabBar activeTab={activeTab} onChange={setActiveTab} />
 
         {activeTab === 'notes' && (
@@ -896,6 +1148,8 @@ function App(): JSX.Element {
             onToggle={(provider, enabled) => void updateProvider(provider, enabled)}
             onUpdateModel={(provider, defaultModel) => void updateProviderModel(provider, defaultModel)}
           />
+        )}
+          </>
         )}
       </aside>
       </div>

@@ -10,6 +10,7 @@ import {
 import { ReadingPartnerDatabase } from './database'
 import { parseDictionaryCsv } from './dictionaryImport'
 import { KeyStore } from './keyStore'
+import { recognizePageImageText } from './ocr'
 import { extractPdfText, PdfTextExtractionCancelledError } from './pdfText'
 import { resolveStarDictIfoPath, StarDictSource } from './stardict'
 import { hasExplicitAnnotationIntent } from '../shared/aiAnnotationIntent'
@@ -20,6 +21,7 @@ import {
   CreateAnnotationInput,
   CreateVocabularyInput,
   DocumentTextIndexEvent,
+  OcrPageTextInput,
   RunAIChatInput,
   RunAIActionInput,
   UpdateAnnotationInput,
@@ -281,6 +283,40 @@ const registerIpc = (): void => {
       releaseDocumentTextIndexController(documentId, controller)
     }
   })
+
+  ipcMain.handle('documents:ocrPageText', async (_event, input: OcrPageTextInput) => {
+    const document = database.getDocument(input.documentId)
+    const pageNumber = Math.max(1, Math.floor(input.pageNumber))
+
+    if (
+      typeof document.pageCount === 'number' &&
+      document.pageCount > 0 &&
+      pageNumber > document.pageCount
+    ) {
+      throw new Error(`Page ${pageNumber} is outside this document.`)
+    }
+
+    const recognized = await recognizePageImageText(input.imageDataUrl, input.imageScale)
+
+    if (!recognized.text) {
+      throw new Error('OCR did not detect readable text on this page.')
+    }
+
+    return database.upsertDocumentPageText({
+      documentId: input.documentId,
+      layout: {
+        documentId: input.documentId,
+        pageNumber,
+        lines: recognized.lines
+      },
+      pageNumber,
+      text: recognized.text
+    })
+  })
+
+  ipcMain.handle('documents:pageOcrLayout', (_event, documentId: string, pageNumber: number) =>
+    database.getDocumentPageOcrLayout(documentId, pageNumber)
+  )
 
   ipcMain.handle('documents:searchText', (_event, documentId: string, query: string) =>
     database.searchDocumentText(documentId, query)

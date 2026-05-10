@@ -1,4 +1,4 @@
-import { Bookmark, FileText, Upload } from 'lucide-react'
+import { Bookmark, FileText, PanelLeftClose, PanelLeftOpen, Upload } from 'lucide-react'
 import type { DocumentRecord } from '../../../shared/types'
 import { formatTime } from './NotesPanel'
 
@@ -6,9 +6,11 @@ type LibraryPanelProps = {
   activeDocumentId: string | null
   currentPageAnnotationCount: number
   documents: DocumentRecord[]
+  isCollapsed: boolean
   pageNumber: number
   onLoadDocument: (document: DocumentRecord) => void
   onOpenPdf: () => void
+  onToggleCollapsed: () => void
 }
 
 const formatBytes = (bytes: number): string => {
@@ -23,12 +25,23 @@ export function LibraryPanel({
   activeDocumentId,
   currentPageAnnotationCount,
   documents,
+  isCollapsed,
   pageNumber,
   onLoadDocument,
-  onOpenPdf
+  onOpenPdf,
+  onToggleCollapsed
 }: LibraryPanelProps): JSX.Element {
   return (
-    <aside className="library-panel">
+    <aside className={isCollapsed ? 'library-panel is-collapsed' : 'library-panel'}>
+      <button
+        className="panel-collapse-button"
+        title={isCollapsed ? '展开文档库' : '折叠文档库'}
+        onClick={onToggleCollapsed}
+      >
+        {isCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+      </button>
+      {!isCollapsed && (
+        <>
       <div className="brand">
         <div className="brand-mark">RP</div>
         <div>
@@ -78,6 +91,8 @@ export function LibraryPanel({
           <span>{currentPageAnnotationCount} 条批注</span>
         </div>
       </section>
+        </>
+      )}
     </aside>
   )
 }

@@ -31,6 +31,34 @@ export type DocumentTextIndexResult = DocumentTextIndexStatus & {
   cancelled?: boolean
 }
 
+export type OcrPageTextInput = {
+  documentId: string
+  imageScale: number
+  pageNumber: number
+  imageDataUrl: string
+}
+
+export type OcrTextLine = {
+  text: string
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
+export type OcrPageLayout = {
+  documentId: string
+  pageNumber: number
+  lines: OcrTextLine[]
+}
+
+export type OcrPageTextResult = DocumentTextIndexStatus & {
+  pageNumber: number
+  charCount: number
+  pageChunkCount: number
+  layout: OcrPageLayout | null
+}
+
 export type DocumentTextIndexEvent =
   | {
       documentId: string
@@ -343,6 +371,11 @@ export type ReadingPartnerApi = {
   saveDocumentProgress: (documentId: string, pageNumber: number) => Promise<DocumentRecord>
   getDocumentTextIndexStatus: (documentId: string) => Promise<DocumentTextIndexStatus>
   indexDocumentText: (documentId: string) => Promise<DocumentTextIndexResult>
+  ocrPageText: (input: OcrPageTextInput) => Promise<OcrPageTextResult>
+  getDocumentPageOcrLayout: (
+    documentId: string,
+    pageNumber: number
+  ) => Promise<OcrPageLayout | null>
   cancelDocumentTextIndex: (documentId: string) => Promise<boolean>
   onDocumentTextIndexEvent: (callback: (event: DocumentTextIndexEvent) => void) => () => void
   searchDocumentText: (documentId: string, query: string) => Promise<DocumentSearchResult[]>

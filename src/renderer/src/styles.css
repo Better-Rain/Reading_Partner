@@ -93,9 +93,23 @@ button {
 
 .app-layout {
   display: grid;
+  grid-template-areas: "library reader inspector";
   grid-template-columns: 280px minmax(520px, 1fr) 360px;
   min-height: 0;
   flex: 1;
+  transition: grid-template-columns 180ms ease;
+}
+
+.app-layout.is-library-collapsed {
+  grid-template-columns: 44px minmax(0, 1fr) 360px;
+}
+
+.app-layout.is-inspector-collapsed {
+  grid-template-columns: 280px minmax(0, 1fr) 44px;
+}
+
+.app-layout.is-library-collapsed.is-inspector-collapsed {
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
 }
 
 .library-panel,
@@ -105,17 +119,95 @@ button {
   flex-direction: column;
   border-color: #d9dee8;
   background: #f8f9fc;
+  transition:
+    padding 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease;
 }
 
 .library-panel {
+  grid-area: library;
+  position: relative;
   border-right: 1px solid #d9dee8;
   padding: 18px;
 }
 
 .inspector-panel {
+  grid-area: inspector;
+  position: relative;
   border-left: 1px solid #d9dee8;
   min-height: 0;
   overflow: hidden;
+}
+
+.library-panel.is-collapsed,
+.inspector-panel.is-collapsed {
+  align-items: center;
+  padding: 10px 4px;
+  overflow: hidden;
+}
+
+.panel-collapse-button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid #cbd4e2;
+  border-radius: 8px;
+  background: #fff;
+  color: #41516a;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
+}
+
+.panel-collapse-button:hover {
+  border-color: #9db7dc;
+  background: #eef4fb;
+  color: #1d4f91;
+  transform: translateY(-1px);
+}
+
+.library-panel > .panel-collapse-button {
+  position: absolute;
+  top: 12px;
+  right: 10px;
+  z-index: 2;
+}
+
+.library-panel:not(.is-collapsed) .brand {
+  padding-right: 38px;
+}
+
+.library-panel.is-collapsed > .panel-collapse-button,
+.inspector-panel.is-collapsed > .panel-collapse-button {
+  position: static;
+}
+
+.inspector-panel > .panel-collapse-button {
+  position: absolute;
+  top: 10px;
+  left: 8px;
+  z-index: 3;
+}
+
+.inspector-panel:not(.is-collapsed) > .panel-collapse-button {
+  top: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-layout,
+  .library-panel,
+  .inspector-panel,
+  .panel-collapse-button,
+  .reader-toolbar-status-track {
+    transition: none;
+    animation: none;
+  }
 }
 
 .brand {
@@ -253,6 +345,7 @@ button {
 }
 
 .reader-column {
+  grid-area: reader;
   display: flex;
   min-height: 0;
   min-width: 0;
@@ -264,16 +357,16 @@ button {
   display: flex;
   height: 64px;
   align-items: center;
-  justify-content: space-between;
-  gap: 18px;
+  gap: 12px;
   border-bottom: 1px solid #d9dee8;
   background: #fff;
   padding: 0 18px;
 }
 
-.reader-toolbar > div:first-child {
+.reader-toolbar-title {
   display: flex;
   min-width: 0;
+  flex: 1 1 220px;
   flex-direction: column;
   gap: 3px;
 }
@@ -284,11 +377,58 @@ button {
   white-space: nowrap;
 }
 
+.reader-toolbar-status {
+  display: block;
+  position: relative;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  max-width: 100%;
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+
+.reader-toolbar-status::-webkit-scrollbar {
+  display: none;
+}
+
+.reader-toolbar-status-track {
+  display: inline-flex;
+  width: max-content;
+}
+
+.reader-toolbar-status-track > span {
+  flex: 0 0 auto;
+}
+
+.reader-toolbar-status.is-overflowing .reader-toolbar-status-track > span {
+  padding-right: 56px;
+}
+
+.reader-toolbar-status.is-overflowing .reader-toolbar-status-track {
+  animation: toolbar-status-marquee 16s linear infinite;
+}
+
+.reader-toolbar-status:hover .reader-toolbar-status-track {
+  animation-play-state: paused;
+}
+
 .toolbar-controls {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
   gap: 8px;
+}
+
+@keyframes toolbar-status-marquee {
+  0%,
+  18% {
+    transform: translateX(0);
+  }
+
+  82%,
+  100% {
+    transform: translateX(-50%);
+  }
 }
 
 .annotation-mode-toggle {
@@ -427,7 +567,8 @@ button:disabled {
 }
 
 .reader-surface.is-panning .react-pdf__Page__textContent,
-.reader-surface.is-panning .react-pdf__Page__annotations {
+.reader-surface.is-panning .react-pdf__Page__annotations,
+.reader-surface.is-panning .ocr-text-layer {
   pointer-events: none;
 }
 
@@ -473,6 +614,41 @@ button:disabled {
   position: relative;
   border-radius: 6px;
   overflow: hidden;
+}
+
+.ocr-text-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  overflow: hidden;
+  color: transparent;
+  pointer-events: auto;
+  user-select: text;
+}
+
+.ocr-text-line {
+  position: absolute;
+  display: block;
+  box-sizing: border-box;
+  overflow: hidden;
+  white-space: pre;
+  font-family: "Microsoft YaHei", "SimSun", sans-serif;
+  letter-spacing: 0;
+  transform-origin: left top;
+  color: transparent;
+  user-select: text;
+}
+
+.ocr-text-layer::selection,
+.ocr-text-line::selection {
+  color: transparent;
+  background: rgba(55, 124, 235, 0.42);
+}
+
+.ocr-text-layer::-moz-selection,
+.ocr-text-line::-moz-selection {
+  color: transparent;
+  background: rgba(55, 124, 235, 0.42);
 }
 
 .pdf-annotation-layer {
@@ -797,6 +973,10 @@ button:disabled {
   border-bottom: 1px solid #d9dee8;
   background: #fff;
   padding: 10px;
+}
+
+.inspector-panel:not(.is-collapsed) .tab-bar {
+  padding-left: 48px;
 }
 
 .tab-bar button {
