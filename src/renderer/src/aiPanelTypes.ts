@@ -68,7 +68,7 @@ export type AiPanelProps = {
   onRun: (promptType: AIPromptType) => void
   onRevertAIOperation: (operationId: string) => void
   onSelectConversation: (conversationId: string) => void
-  onResendChatMessage: (message: AIChatMessageRecord) => void
+  onResendChatMessage: (message: AIChatMessageRecord, content?: string) => void
   onSendChat: (message: string) => void
   onUpdateConversationTitle: (conversationId: string, title: string) => void
 }

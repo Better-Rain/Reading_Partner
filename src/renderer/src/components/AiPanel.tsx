@@ -132,10 +132,14 @@ export function AiPanel({
   const shouldStickToBottomRef = useRef(true)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [titleEditDraft, setTitleEditDraft] = useState(activeConversation?.title ?? '')
+  const [resendEditId, setResendEditId] = useState<string | null>(null)
+  const [resendEditDraft, setResendEditDraft] = useState('')
 
   useEffect(() => {
     setTitleEditDraft(activeConversation?.title ?? '')
     setIsEditingTitle(false)
+    setResendEditId(null)
+    setResendEditDraft('')
   }, [activeConversation?.id, activeConversation?.title])
 
   useEffect(() => {
@@ -252,18 +256,68 @@ export function AiPanel({
               <article className={`chat-message ${message.role}`} key={message.id}>
                 <strong>{message.role === 'user' ? '你' : 'Reading Partner'}</strong>
                 {message.role === 'user' && (
-                  <button
-                    className="text-button neutral chat-message-action"
-                    disabled={!canResendChat}
-                    type="button"
-                    onClick={() => onResendChatMessage(message)}
-                  >
-                    <RotateCcw size={13} />
-                    重新发送
-                  </button>
+                  <div className="chat-message-action">
+                    <button
+                      className="text-button neutral"
+                      disabled={!canResendChat}
+                      type="button"
+                      onClick={() => {
+                        setResendEditId(message.id)
+                        setResendEditDraft(message.content)
+                      }}
+                    >
+                      <RotateCcw size={13} />
+                      重新发送
+                    </button>
+                  </div>
                 )}
                 {message.selectedText && <blockquote>{message.selectedText}</blockquote>}
-                <MarkdownContent text={message.content} />
+                {resendEditId === message.id ? (
+                  <form
+                    className="chat-resend-editor"
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      const trimmed = resendEditDraft.trim()
+
+                      if (!trimmed) {
+                        return
+                      }
+
+                      onResendChatMessage(message, trimmed)
+                      setResendEditId(null)
+                      setResendEditDraft('')
+                    }}
+                  >
+                    <textarea
+                      autoFocus
+                      value={resendEditDraft}
+                      onChange={(event) => setResendEditDraft(event.target.value)}
+                    />
+                    <div>
+                      <button
+                        className="text-button neutral"
+                        disabled={!canResendChat || !resendEditDraft.trim()}
+                        type="submit"
+                      >
+                        <Send size={13} />
+                        发送
+                      </button>
+                      <button
+                        className="text-button"
+                        type="button"
+                        onClick={() => {
+                          setResendEditId(null)
+                          setResendEditDraft('')
+                        }}
+                      >
+                        <X size={13} />
+                        取消
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <MarkdownContent text={message.content} />
+                )}
               </article>
             ))
           )}

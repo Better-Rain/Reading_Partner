@@ -1114,7 +1114,7 @@ function App(): JSX.Element {
             onCreateConversation={startNewAIConversation}
             onKeepAIOperation={keepAIOperation}
             onRevertAIOperation={(operationId) => void revertAIOperation(operationId)}
-            onResendChatMessage={(message) => void resendChatMessage(message)}
+            onResendChatMessage={(message, content) => void resendChatMessage(message, content)}
             onSendChat={(message) => void sendChatMessage(message)}
             onSelectConversation={(conversationId) => void selectAIConversation(conversationId)}
             onQuestionChange={setQaQuestion}

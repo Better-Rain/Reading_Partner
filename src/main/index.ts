@@ -46,7 +46,10 @@ const sanitizeFileName = (value: string): string =>
   (value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim() || 'reading-marks').slice(0, 120)
 
 const stripAIAnnotationDirectives = (value: string): string =>
-  value.replace(/<!--\s*RP_ANNOTATIONS\s*[\s\S]*?\s*-->/gi, '').trim()
+  value
+    .replace(/<!--\s*RP_ANNOTATIONS\s*[\s\S]*?\s*-->/gi, '')
+    .replace(/<!--\s*RP_ANNOTATIONS[\s\S]*$/i, '')
+    .trim()
 
 const stripAIReasoningDirectives = (value: string): string =>
   value.replace(/<!--\s*RP_REASONING\s*[\s\S]*?\s*-->/gi, '').trim()

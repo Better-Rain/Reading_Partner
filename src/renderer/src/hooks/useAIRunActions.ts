@@ -96,11 +96,53 @@ const buildSelectedAnnotationDrafts = (
   ]
 }
 
+const promisedAnnotationPattern =
+  /(创建|生成|添加|写入|做|保存).{0,12}(批注|标注|注释|笔记)|(批注|标注|注释).{0,12}(如下|包括|已经|将会|可以)/i
+
+const shouldCreateFallbackAnnotation = (
+  run: AIRunState | null,
+  rawOutput: string,
+  visibleOutputForNote: string
+): run is AIRunState => {
+  if (!run || run.selectedAnnotationRequest) {
+    return false
+  }
+
+  if (rawOutput.includes('RP_ANNOTATIONS')) {
+    return true
+  }
+
+  return promisedAnnotationPattern.test(visibleOutputForNote)
+}
+
+const buildFallbackAnnotationDraft = (
+  pageNumber: number,
+  visibleOutputForNote: string
+): ReturnType<typeof extractAIAssistedAnnotations>['annotations'][number] | null => {
+  const note = visibleOutputForNote
+    .replace(promisedAnnotationPattern, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!note) {
+    return null
+  }
+
+  return {
+    pageNumber,
+    scope: 'margin',
+    selectedText: null,
+    note,
+    color: aiDefaultAnnotationColor
+  }
+}
+
 export const useAIRunActions = (params: UseAIRunActionsParams): {
   aiRun: AIRunState | null
   askDocumentQuestion: (question: string) => Promise<void>
   cancelCurrentAIRun: () => Promise<void>
   defineVocabularyWithAI: (item: VocabularyRecord) => Promise<void>
+  resendChatMessage: (message: AIChatMessageRecord, contentOverride?: string) => Promise<void>
   runAIAction: (promptType: AIPromptType, text?: string) => Promise<void>
   sendChatMessage: (message: string) => Promise<void>
 } => {
@@ -226,9 +268,21 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
         assistedAnnotationDrafts,
         visibleOutputForNote
       )
+      const fallbackDraft =
+        assistedDraftsForCreation.length === 0 &&
+        shouldCreateFallbackAnnotation(
+          currentRun,
+          event.artifact.outputMarkdown,
+          visibleOutputForNote
+        )
+          ? buildFallbackAnnotationDraft(
+              event.artifact.pageNumber ?? pageNumber,
+              visibleOutputForNote
+            )
+          : null
       const createdAnnotations = await createAIAssistedAnnotations(
         event.artifact.documentId,
-        assistedDraftsForCreation,
+        fallbackDraft ? [fallbackDraft] : assistedDraftsForCreation,
         event.artifact.model
       )
 
@@ -524,7 +578,10 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
     })
   }
 
-  const resendChatMessage = async (message: AIChatMessageRecord): Promise<void> => {
+  const resendChatMessage = async (
+    message: AIChatMessageRecord,
+    contentOverride?: string
+  ): Promise<void> => {
     const {
       activeConversation,
       activeDocument,
@@ -551,7 +608,7 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
       return
     }
 
-    const trimmed = message.content.trim()
+    const trimmed = (contentOverride ?? message.content).trim()
 
     if (!trimmed) {
       return

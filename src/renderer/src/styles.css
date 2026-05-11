@@ -1911,6 +1911,43 @@ button:disabled {
   margin: -2px 0 6px 8px;
 }
 
+.chat-message-action .text-button {
+  margin-top: 0;
+}
+
+.chat-resend-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.chat-resend-editor textarea {
+  min-height: 88px;
+  resize: vertical;
+  border: 1px solid #c9d4e5;
+  border-radius: 8px;
+  background: #fff;
+  color: #1f2937;
+  outline: none;
+  padding: 8px 10px;
+  line-height: 1.5;
+}
+
+.chat-resend-editor textarea:focus {
+  border-color: #7da5dc;
+  box-shadow: 0 0 0 3px rgba(63, 127, 200, 0.14);
+}
+
+.chat-resend-editor > div {
+  display: flex;
+  gap: 10px;
+}
+
+.chat-resend-editor .text-button {
+  margin-top: 0;
+}
+
 .chat-message p {
   margin: 6px 0 0;
   color: #263447;

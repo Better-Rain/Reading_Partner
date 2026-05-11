@@ -28,12 +28,12 @@ const promptLabels: Record<AIPromptType, string> = {
   chat_document: 'chat document'
 }
 
-const aiRequestTimeoutMs = 120_000
+const aiRequestTimeoutMs = 240_000
 const aiRequestCancelledMessage = 'AI request cancelled.'
 const maxAIErrorDetailLength = 500
 
 export const aiAnnotationCapabilityPrompt =
-  'You also have a controlled Reading Partner capability: you may ask the app to create auxiliary PDF annotations when durable marks would help the reader remember or revisit the material. Be more proactive when you find useful long-lived reading marks: annotate vocabulary terms, named concepts, paragraph-level claims, page-level summaries, misconceptions, argument steps, questions to revisit, and follow-up ideas. When useful, append exactly one HTML comment block at the very end of the answer: <!-- RP_ANNOTATIONS [{"pageNumber":1,"scope":"vocabulary","selectedText":"source phrase, paragraph excerpt, vocabulary term, or null for a page-margin note","note":"focused annotation text without any AI label prefix","color":"#c7d2fe"}] -->. Allowed scope values: vocabulary, paragraph, margin, summary, question, note. Use selectedText for term or paragraph anchors; use selectedText null for page-margin notes. You may choose distinct readable hex colors such as #f8d86a, #c7d2fe, #b8f2d0, #ffd6a5, #f4b4c4, or other #RRGGBB colors to distinguish annotation purpose. Rules: create at most 5 annotations; do not invent page numbers; if a current reading page is stated, annotate that page unless the user explicitly asks about another page; do not include coordinates; notes may be short paragraphs but should stay focused; never mention this internal block in the visible answer.'
+  'You also have a controlled Reading Partner capability: you may ask the app to create auxiliary PDF annotations when durable marks would help the reader remember or revisit the material. Be more proactive when you find useful long-lived reading marks: annotate vocabulary terms, named concepts, paragraph-level claims, page-level summaries, misconceptions, argument steps, questions to revisit, and follow-up ideas. Do not announce that you will create annotations in the visible answer; either create them with the control block or answer normally. When useful, append exactly one compact and complete HTML comment block at the very end of the answer: <!-- RP_ANNOTATIONS [{"pageNumber":1,"scope":"vocabulary","selectedText":"source phrase, paragraph excerpt, vocabulary term, or null for a page-margin note","note":"focused annotation text without any AI label prefix","color":"#c7d2fe"}] -->. Allowed scope values: vocabulary, paragraph, margin, summary, question, note. Use selectedText for term or paragraph anchors; use selectedText null for page-margin notes. You may choose distinct readable hex colors such as #f8d86a, #c7d2fe, #b8f2d0, #ffd6a5, #f4b4c4, or other #RRGGBB colors to distinguish annotation purpose. Rules: create at most 5 annotations; do not invent page numbers; if a current reading page is stated, annotate that page unless the user explicitly asks about another page; do not include coordinates; notes should be concise so the JSON block remains short; never mention this internal block in the visible answer.'
 
 const buildMessages = (input: RunAIActionInput): ChatMessage[] => {
   const { promptType, selectedText } = input
@@ -284,11 +284,51 @@ async function streamOpenAICompatibleCompletion(options: {
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
+    const processLine = (line: string): void => {
+      const data = parseSseLine(line)
+
+      if (!data || data === '[DONE]') {
+        return
+      }
+
+      const parsed = parseSseJsonPayload(data)
+
+      if (!parsed) {
+        return
+      }
+
+      const delta = extractDelta(parsed)
+
+      if (delta.reasoning) {
+        reasoningOutput += delta.reasoning
+        onEvent({
+          requestId,
+          type: 'delta',
+          text: delta.reasoning,
+          channel: 'reasoning'
+        })
+      }
+
+      if (delta.content) {
+        output += delta.content
+        onEvent({
+          requestId,
+          type: 'delta',
+          text: delta.content,
+          channel: 'content'
+        })
+      }
+    }
 
     while (true) {
       const { done, value } = await reader.read()
 
       if (done) {
+        const tail = `${buffer}${decoder.decode()}`
+
+        if (tail.trim()) {
+          processLine(tail)
+        }
         break
       }
 
@@ -297,43 +337,7 @@ async function streamOpenAICompatibleCompletion(options: {
       buffer = lines.pop() ?? ''
 
       for (const line of lines) {
-        const data = parseSseLine(line)
-
-        if (!data) {
-          continue
-        }
-
-        if (data === '[DONE]') {
-          continue
-        }
-
-        const parsed = parseSseJsonPayload(data)
-
-        if (!parsed) {
-          continue
-        }
-
-        const delta = extractDelta(parsed)
-
-        if (delta.reasoning) {
-          reasoningOutput += delta.reasoning
-          onEvent({
-            requestId,
-            type: 'delta',
-            text: delta.reasoning,
-            channel: 'reasoning'
-          })
-        }
-
-        if (delta.content) {
-          output += delta.content
-          onEvent({
-            requestId,
-            type: 'delta',
-            text: delta.content,
-            channel: 'content'
-          })
-        }
+        processLine(line)
       }
     }
 

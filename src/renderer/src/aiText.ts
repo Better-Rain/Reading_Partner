@@ -1,8 +1,9 @@
 export const aiAnnotationBlockPattern = /<!--\s*RP_ANNOTATIONS\s*([\s\S]*?)\s*-->/gi
+const incompleteAIAnnotationBlockPattern = /<!--\s*RP_ANNOTATIONS[\s\S]*$/i
 const aiReasoningBlockPattern = /<!--\s*RP_REASONING\s*([\s\S]*?)\s*-->/gi
 
 export const stripAIAssistedAnnotationBlock = (text: string): string =>
-  text.replace(aiAnnotationBlockPattern, '').trim()
+  text.replace(aiAnnotationBlockPattern, '').replace(incompleteAIAnnotationBlockPattern, '').trim()
 
 export const stripAIReasoningBlock = (text: string): string =>
   text.replace(aiReasoningBlockPattern, '').trim()
