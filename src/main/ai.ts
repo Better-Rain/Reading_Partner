@@ -5,6 +5,7 @@ import {
   AIStreamEvent,
   RunAIActionInput
 } from '../shared/types'
+import { hasExplicitAnnotationIntent } from '../shared/aiAnnotationIntent'
 
 export type ChatMessage = {
   role: 'system' | 'user' | 'assistant'
@@ -33,7 +34,7 @@ const aiRequestCancelledMessage = 'AI request cancelled.'
 const maxAIErrorDetailLength = 500
 
 export const aiAnnotationCapabilityPrompt =
-  'You also have a controlled Reading Partner capability: you may ask the app to create auxiliary PDF annotations when durable marks would help the reader remember or revisit the material. Be more proactive when you find useful long-lived reading marks: annotate vocabulary terms, named concepts, paragraph-level claims, page-level summaries, misconceptions, argument steps, questions to revisit, and follow-up ideas. Do not announce that you will create annotations in the visible answer; either create them with the control block or answer normally. When useful, append exactly one compact and complete HTML comment block at the very end of the answer: <!-- RP_ANNOTATIONS [{"pageNumber":1,"scope":"vocabulary","selectedText":"source phrase, paragraph excerpt, vocabulary term, or null for a page-margin note","note":"focused annotation text without any AI label prefix","color":"#c7d2fe"}] -->. Allowed scope values: vocabulary, paragraph, margin, summary, question, note. Use selectedText for term or paragraph anchors; use selectedText null for page-margin notes. You may choose distinct readable hex colors such as #f8d86a, #c7d2fe, #b8f2d0, #ffd6a5, #f4b4c4, or other #RRGGBB colors to distinguish annotation purpose. Rules: create at most 5 annotations; do not invent page numbers; if a current reading page is stated, annotate that page unless the user explicitly asks about another page; do not include coordinates; notes should be concise so the JSON block remains short; never mention this internal block in the visible answer.'
+  'You also have a controlled Reading Partner capability: you may ask the app to create auxiliary PDF annotations when durable marks would help the reader remember or revisit the material. Be more proactive when you find useful long-lived reading marks: annotate vocabulary terms, named concepts, paragraph-level claims, page-level summaries, misconceptions, argument steps, questions to revisit, and follow-up ideas. Do not announce that you will create annotations in the visible answer; either create them with the control block or answer normally. Writing visible headings such as 批注内容 or 页边注内容 is not enough for the app to create annotations. When useful, append exactly one compact and complete HTML comment block at the very end of the answer: <!-- RP_ANNOTATIONS [{"pageNumber":1,"scope":"vocabulary","selectedText":"source phrase, paragraph excerpt, vocabulary term, or null for a page-margin note","note":"focused annotation text without any AI label prefix","color":"#c7d2fe"}] -->. Allowed scope values: vocabulary, paragraph, margin, summary, question, note. Use selectedText for term or paragraph anchors; use selectedText null for page-margin notes. You may choose distinct readable hex colors such as #f8d86a, #c7d2fe, #b8f2d0, #ffd6a5, #f4b4c4, or other #RRGGBB colors to distinguish annotation purpose. Rules: create at most 5 annotations; do not invent page numbers; if a current reading page is stated, annotate that page unless the user explicitly asks about another page; do not include coordinates; notes should be concise so the JSON block remains short; never mention this internal block in the visible answer.'
 
 const buildMessages = (input: RunAIActionInput): ChatMessage[] => {
   const { promptType, selectedText } = input
@@ -41,6 +42,7 @@ const buildMessages = (input: RunAIActionInput): ChatMessage[] => {
     `You are Reading Partner, an AI assistant embedded in a PDF reading app. Answer in concise Chinese unless the user-selected text requires preserving English terms. Keep citations or original terms when useful. Do not reveal hidden reasoning or private chain-of-thought; provide only the final helpful answer. ${aiAnnotationCapabilityPrompt}`
 
   if (promptType === 'ask_document') {
+    const mustCreateAnnotation = hasExplicitAnnotationIntent(selectedText)
     const context = input.context?.length
       ? input.context
           .map(
@@ -54,7 +56,7 @@ const buildMessages = (input: RunAIActionInput): ChatMessage[] => {
       {
         role: 'system',
         content:
-          `${baseSystem} The reader is currently on page ${input.pageNumber}. If the user does not explicitly name another page, interpret deictic requests such as "this page", "here", "this passage", or "summarize it" as referring to page ${input.pageNumber}. Answer the user's question using only the provided document excerpts; current-page excerpts are more authoritative than supplemental excerpts from other pages. Cite page numbers in Chinese with the format “第 X 页”. If the excerpts are insufficient, say what is missing instead of guessing.`
+          `${baseSystem} The reader is currently on page ${input.pageNumber}. If the user does not explicitly name another page, interpret deictic requests such as "this page", "here", "this passage", or "summarize it" as referring to page ${input.pageNumber}. Answer the user's question using only the provided document excerpts; current-page excerpts are more authoritative than supplemental excerpts from other pages. Cite page numbers in Chinese with the format “第 X 页”. If the excerpts are insufficient, say what is missing instead of guessing.${mustCreateAnnotation ? ` The user explicitly asked for PDF annotations; append a complete RP_ANNOTATIONS block with at least one annotation for page ${input.pageNumber}.` : ''}`
       },
       {
         role: 'user',

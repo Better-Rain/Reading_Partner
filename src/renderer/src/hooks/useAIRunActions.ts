@@ -54,6 +54,75 @@ type UseAIRunActionsParams = {
 
 type AIRunContext = UseAIRunActionsParams
 
+const maxFallbackAnnotationNoteLength = 900
+
+const annotationNounPattern = '(?:批注|标注|注释|页边注|边注|旁注|笔记)'
+const visibleAnnotationHeadingPattern = new RegExp(
+  '^\\s*(?:#{1,6}\\s*)?(?:[*_`]+\\s*)?' +
+    `${annotationNounPattern}(?:内容|正文|建议|如下)?\\s*[：:]?\\s*$`,
+  'gim'
+)
+const visibleAnnotationIntroPattern = new RegExp(
+  `^\\s*(?:以下是|下面是|这是|这里是).{0,80}${annotationNounPattern}.{0,40}[：:]?\\s*$`,
+  'i'
+)
+const repeatedAnnotationHeadingPattern = new RegExp(
+  `^\\s*(?:#{1,6}\\s*)?${annotationNounPattern}(?:内容|正文|建议|如下)?\\s*[：:]?\\s*$`,
+  'i'
+)
+const markdownSeparatorPattern = /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/
+
+const collapseAnnotationNote = (value: string): string => {
+  const collapsed = value.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+
+  if (collapsed.length <= maxFallbackAnnotationNoteLength) {
+    return collapsed
+  }
+
+  return `${collapsed.slice(0, maxFallbackAnnotationNoteLength - 3).trim()}...`
+}
+
+const trimVisibleAnnotationCandidate = (value: string): string => {
+  const lines = value.replace(/\r\n?/g, '\n').split('\n')
+
+  while (
+    lines.length > 0 &&
+    (!lines[0].trim() ||
+      markdownSeparatorPattern.test(lines[0]) ||
+      visibleAnnotationIntroPattern.test(lines[0]) ||
+      repeatedAnnotationHeadingPattern.test(lines[0]))
+  ) {
+    lines.shift()
+  }
+
+  while (
+    lines.length > 0 &&
+    (!lines[lines.length - 1].trim() ||
+      markdownSeparatorPattern.test(lines[lines.length - 1]))
+  ) {
+    lines.pop()
+  }
+
+  return collapseAnnotationNote(lines.join('\n'))
+}
+
+const extractVisibleAnnotationNote = (visibleOutputForNote: string): string => {
+  const normalized = visibleOutputForNote.replace(/\r\n?/g, '\n')
+  const headingMatches = Array.from(normalized.matchAll(visibleAnnotationHeadingPattern))
+
+  for (let index = headingMatches.length - 1; index >= 0; index -= 1) {
+    const match = headingMatches[index]
+    const start = (match.index ?? 0) + match[0].length
+    const note = trimVisibleAnnotationCandidate(normalized.slice(start))
+
+    if (note) {
+      return note
+    }
+  }
+
+  return collapseAnnotationNote(normalized)
+}
+
 const buildSelectedAnnotationDrafts = (
   run: AIRunState,
   drafts: ReturnType<typeof extractAIAssistedAnnotations>['annotations'],
@@ -78,7 +147,7 @@ const buildSelectedAnnotationDrafts = (
     )
   }
 
-  const fallbackNote = visibleOutputForNote.trim()
+  const fallbackNote = extractVisibleAnnotationNote(visibleOutputForNote)
 
   if (!fallbackNote) {
     return drafts
@@ -97,7 +166,7 @@ const buildSelectedAnnotationDrafts = (
 }
 
 const promisedAnnotationPattern =
-  /(创建|生成|添加|写入|做|保存).{0,12}(批注|标注|注释|笔记)|(批注|标注|注释).{0,12}(如下|包括|已经|将会|可以)/i
+  /(创建|生成|添加|写入|做|保存).{0,16}(批注|标注|注释|页边注|边注|旁注|笔记)|(批注|标注|注释|页边注|边注|旁注|笔记).{0,16}(内容|如下|包括|已经|将会|可以|总结|要点)/i
 
 const shouldCreateFallbackAnnotation = (
   run: AIRunState | null,
@@ -119,10 +188,7 @@ const buildFallbackAnnotationDraft = (
   pageNumber: number,
   visibleOutputForNote: string
 ): ReturnType<typeof extractAIAssistedAnnotations>['annotations'][number] | null => {
-  const note = visibleOutputForNote
-    .replace(promisedAnnotationPattern, '')
-    .replace(/\s+/g, ' ')
-    .trim()
+  const note = extractVisibleAnnotationNote(visibleOutputForNote)
 
   if (!note) {
     return null
@@ -304,17 +370,32 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
       return
     }
 
+    let createdAnnotationCount = 0
+
     if (currentRun?.source === 'vocabulary' && currentRun.vocabularyId) {
       const updated = await window.readingPartner.updateVocabularyDefinition({
         id: currentRun.vocabularyId,
         definition: visibleOutputForNote
       })
       setVocabulary((items) => items.map((item) => (item.id === updated.id ? updated : item)))
+      const fallbackDraft =
+        assistedAnnotationDrafts.length === 0 &&
+        shouldCreateFallbackAnnotation(
+          currentRun,
+          event.artifact.outputMarkdown,
+          visibleOutputForNote
+        )
+          ? buildFallbackAnnotationDraft(
+              event.artifact.pageNumber ?? pageNumber,
+              visibleOutputForNote
+            )
+          : null
       const createdAnnotations = await createAIAssistedAnnotations(
         event.artifact.documentId,
-        assistedAnnotationDrafts,
+        fallbackDraft ? [fallbackDraft] : assistedAnnotationDrafts,
         event.artifact.model
       )
+      createdAnnotationCount = createdAnnotations.length
       registerAIOperation(event.requestId, createdAnnotations)
     } else {
       const createdAnnotations: AnnotationRecord[] = []
@@ -329,15 +410,30 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
       })
       createdAnnotations.push(note)
 
+      const fallbackDraft =
+        assistedAnnotationDrafts.length === 0 &&
+        shouldCreateFallbackAnnotation(
+          currentRun,
+          event.artifact.outputMarkdown,
+          visibleOutputForNote
+        )
+          ? buildFallbackAnnotationDraft(
+              event.artifact.pageNumber ?? pageNumber,
+              visibleOutputForNote
+            )
+          : null
+      const assistedDraftsForCreation = fallbackDraft ? [fallbackDraft] : assistedAnnotationDrafts
+
       createdAnnotations.push(
         ...(await createAIAssistedAnnotations(
           event.artifact.documentId,
-          assistedAnnotationDrafts,
+          assistedDraftsForCreation,
           event.artifact.model
         ))
       )
 
       setAnnotations((items) => [...items, note])
+      createdAnnotationCount = createdAnnotations.length
       registerAIOperation(event.requestId, createdAnnotations)
     }
 
@@ -349,8 +445,8 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
     setStatus(
       currentRun?.source === 'vocabulary'
         ? 'AI 释义已写入词汇本'
-        : assistedAnnotationDrafts.length > 0
-          ? `AI 结果已保存为笔记，并创建 ${assistedAnnotationDrafts.length} 条辅助批注`
+        : createdAnnotationCount > 1
+          ? `AI 结果已保存为笔记，并创建 ${createdAnnotationCount - 1} 条辅助批注`
           : 'AI 结果已保存为笔记'
     )
   }

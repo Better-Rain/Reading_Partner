@@ -68,6 +68,15 @@ const buildExplicitSelectedAnnotationPrompt = (pageNumber: number, selectedText:
     selectedText
   ].join('\n')
 
+const buildExplicitPageAnnotationPrompt = (pageNumber: number): string =>
+  [
+    '本轮用户明确要求创建 PDF 批注。',
+    '你必须在回答末尾追加一个且仅一个 RP_ANNOTATIONS HTML 注释块，且至少包含 1 条批注，最多 5 条。',
+    `用户未提供当前选区时，优先创建 pageNumber ${pageNumber} 的页边注或总结批注，selectedText 使用 null。`,
+    '不要只在可见回答里写“批注内容”或“页边注内容”；真正写入 PDF 的批注内容必须放在 RP_ANNOTATIONS 的 note 字段。',
+    'visible answer 可以正常总结或说明，但 RP_ANNOTATIONS 块必须完整保留在回答末尾。'
+  ].join('\n')
+
 const createAIRequestController = (requestId: string): AbortController => {
   aiRequestControllers.get(requestId)?.abort()
   const controller = new AbortController()
@@ -664,8 +673,8 @@ const registerIpc = (): void => {
     const provider = database.getAIProvider(input.providerId)
     const apiKey = keyStore.get(provider.apiKeyRef)
     const selectedText = input.selectedText?.trim() || null
-    const explicitSelectedAnnotationRequest =
-      Boolean(selectedText) && hasExplicitAnnotationIntent(input.message)
+    const explicitAnnotationRequest = hasExplicitAnnotationIntent(input.message)
+    const explicitSelectedAnnotationRequest = Boolean(selectedText) && explicitAnnotationRequest
     database.createAIChatMessage({
       conversationId: input.conversationId,
       role: 'user',
@@ -709,6 +718,13 @@ const registerIpc = (): void => {
               content: buildExplicitSelectedAnnotationPrompt(input.pageNumber, selectedText)
             }
           ]
+        : explicitAnnotationRequest
+          ? [
+              {
+                role: 'user' as const,
+                content: buildExplicitPageAnnotationPrompt(input.pageNumber)
+              }
+            ]
         : []),
       ...recentMessages.map<ChatMessage>((message) => ({
         role: message.role,
