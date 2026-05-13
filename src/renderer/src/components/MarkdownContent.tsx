@@ -3,6 +3,8 @@ import type { ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { extractAIReasoning, stripAIAssistedAnnotationBlock } from '../aiText'
 
+const tableCellSeparatorPlaceholder = '\u0000PIPE\u0000'
+
 const renderInlineMarkdown = (text: string): ReactNode[] => {
   const nodes: ReactNode[] = []
   const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g
@@ -33,6 +35,35 @@ const renderInlineMarkdown = (text: string): ReactNode[] => {
   }
 
   return nodes
+}
+
+const isMarkdownTableRow = (line: string): boolean => {
+  const trimmed = line.trim()
+
+  return trimmed.startsWith('|') && trimmed.endsWith('|') && trimmed.split('|').length >= 4
+}
+
+const isMarkdownTableDivider = (line: string): boolean =>
+  /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line.trim())
+
+const splitMarkdownTableRow = (line: string): string[] => {
+  const protectedLine = line.replace(/\\\|/g, tableCellSeparatorPlaceholder)
+  const trimmed = protectedLine.trim().replace(/^\|/, '').replace(/\|$/, '')
+
+  return trimmed
+    .split('|')
+    .map((cell) => cell.replaceAll(tableCellSeparatorPlaceholder, '|').trim())
+}
+
+const isMarkdownTableStart = (lines: string[], index: number): boolean =>
+  isMarkdownTableRow(lines[index] ?? '') && isMarkdownTableDivider(lines[index + 1] ?? '')
+
+const normalizeMarkdownTableCells = (cells: string[], width: number): string[] => {
+  if (cells.length >= width) {
+    return cells.slice(0, width)
+  }
+
+  return [...cells, ...Array.from({ length: width - cells.length }, () => '')]
 }
 
 function ReasoningDisclosure({ text }: { text: string }): JSX.Element {
@@ -83,6 +114,45 @@ export function MarkdownContent({ text }: { text: string }): JSX.Element {
     if (trimmed.startsWith('# ')) {
       blocks.push(<h2 key={index}>{renderInlineMarkdown(trimmed.slice(2))}</h2>)
       index += 1
+      continue
+    }
+
+    if (isMarkdownTableStart(lines, index)) {
+      const blockIndex = index
+      const header = splitMarkdownTableRow(lines[index])
+      const columnCount = Math.max(header.length, 1)
+      const rows: string[][] = []
+      index += 2
+
+      while (index < lines.length && isMarkdownTableRow(lines[index])) {
+        rows.push(normalizeMarkdownTableCells(splitMarkdownTableRow(lines[index]), columnCount))
+        index += 1
+      }
+
+      blocks.push(
+        <div className="markdown-table-scroll" key={blockIndex}>
+          <table>
+            <thead>
+              <tr>
+                {normalizeMarkdownTableCells(header, columnCount).map((cell, cellIndex) => (
+                  <th key={`${blockIndex}-h-${cellIndex}`}>{renderInlineMarkdown(cell)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, rowIndex) => (
+                <tr key={`${blockIndex}-r-${rowIndex}`}>
+                  {row.map((cell, cellIndex) => (
+                    <td key={`${blockIndex}-r-${rowIndex}-${cellIndex}`}>
+                      {renderInlineMarkdown(cell)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )
       continue
     }
 
@@ -154,6 +224,7 @@ export function MarkdownContent({ text }: { text: string }): JSX.Element {
         !next ||
         next.startsWith('#') ||
         next.startsWith('> ') ||
+        isMarkdownTableStart(lines, index) ||
         /^[-*]\s+/.test(next) ||
         /^\d+\.\s+/.test(next)
       ) {

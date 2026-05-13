@@ -2119,6 +2119,35 @@ button:disabled {
   padding-left: 10px;
 }
 
+.markdown-table-scroll {
+  margin: 10px 0 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.markdown-content table {
+  width: 100%;
+  min-width: 420px;
+  border-collapse: collapse;
+  border: 1px solid #d7e0ec;
+  background: #ffffff;
+  font-size: 13px;
+}
+
+.markdown-content th,
+.markdown-content td {
+  border: 1px solid #d7e0ec;
+  padding: 7px 9px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-content th {
+  background: #eef3f8;
+  color: #263447;
+  font-weight: 700;
+}
+
 .markdown-content code {
   border-radius: 4px;
   background: #eef2f7;
