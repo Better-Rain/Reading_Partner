@@ -123,6 +123,22 @@ const extractVisibleAnnotationNote = (visibleOutputForNote: string): string => {
   return collapseAnnotationNote(normalized)
 }
 
+const normalizeAnnotationAnchorText = (value: string | null | undefined): string =>
+  (value ?? '').replace(/\s+/g, ' ').trim().toLocaleLowerCase()
+
+const filterSelectionAssistedDrafts = (
+  drafts: ReturnType<typeof extractAIAssistedAnnotations>['annotations'],
+  selectedText: string
+): ReturnType<typeof extractAIAssistedAnnotations>['annotations'] => {
+  const selectedAnchor = normalizeAnnotationAnchorText(selectedText)
+
+  return drafts.filter((draft) => {
+    const draftAnchor = normalizeAnnotationAnchorText(draft.selectedText)
+
+    return draftAnchor && draftAnchor !== selectedAnchor
+  })
+}
+
 const buildSelectedAnnotationDrafts = (
   run: AIRunState,
   drafts: ReturnType<typeof extractAIAssistedAnnotations>['annotations'],
@@ -173,7 +189,7 @@ const shouldCreateFallbackAnnotation = (
   rawOutput: string,
   visibleOutputForNote: string
 ): run is AIRunState => {
-  if (!run || run.selectedAnnotationRequest) {
+  if (!run || run.selectedAnnotationRequest || run.source === 'selection') {
     return false
   }
 
@@ -399,6 +415,7 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
       registerAIOperation(event.requestId, createdAnnotations)
     } else {
       const createdAnnotations: AnnotationRecord[] = []
+      const isSelectionRun = currentRun?.source === 'selection'
       const note = await window.readingPartner.createAnnotation({
         documentId: event.artifact.documentId,
         type: 'note',
@@ -422,7 +439,11 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
               visibleOutputForNote
             )
           : null
-      const assistedDraftsForCreation = fallbackDraft ? [fallbackDraft] : assistedAnnotationDrafts
+      const assistedDraftsForCreation = isSelectionRun
+        ? filterSelectionAssistedDrafts(assistedAnnotationDrafts, event.artifact.inputText)
+        : fallbackDraft
+          ? [fallbackDraft]
+          : assistedAnnotationDrafts
 
       createdAnnotations.push(
         ...(await createAIAssistedAnnotations(
