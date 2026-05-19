@@ -19,6 +19,11 @@ export type AIRunState = {
   error: string | null
   source: 'selection' | 'vocabulary' | 'document_qa' | 'chat'
   conversationId?: string
+  selectionContext?: {
+    pageNumber: number
+    rects: AnnotationRect[]
+    text: string
+  }
   linkedSelection?: {
     authorName: string
     color: string

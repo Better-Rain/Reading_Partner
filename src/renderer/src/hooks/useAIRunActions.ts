@@ -416,13 +416,15 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
     } else {
       const createdAnnotations: AnnotationRecord[] = []
       const isSelectionRun = currentRun?.source === 'selection'
+      const selectionContext = isSelectionRun ? currentRun.selectionContext : undefined
       const note = await window.readingPartner.createAnnotation({
         documentId: event.artifact.documentId,
         type: 'note',
-        pageNumber: event.artifact.pageNumber ?? 1,
-        selectedText: event.artifact.inputText,
+        pageNumber: selectionContext?.pageNumber ?? event.artifact.pageNumber ?? 1,
+        selectedText: selectionContext?.text ?? event.artifact.inputText,
         color: aiDefaultAnnotationColor,
         note: `AI ${promptLabels[event.artifact.promptType]}\n模型：${event.artifact.model}\n\n${visibleOutputForNote}`,
+        rectsJson: selectionContext?.rects.length ? JSON.stringify(selectionContext.rects) : null,
         authorName: 'AI'
       })
       createdAnnotations.push(note)
@@ -482,8 +484,15 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
     promptType: AIPromptType,
     text = contextRef.current.selectionText ?? undefined
   ): Promise<void> => {
-    const { activeDocument, pageNumber, readyProvider, setActiveTab, setSelection, setStatus } =
-      contextRef.current
+    const {
+      activeDocument,
+      pageNumber,
+      readyProvider,
+      selectionRects,
+      setActiveTab,
+      setSelection,
+      setStatus
+    } = contextRef.current
 
     if (!activeDocument || !text) {
       return
@@ -496,6 +505,11 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
     }
 
     const requestId = crypto.randomUUID()
+    const selectionContext = {
+      pageNumber,
+      rects: selectionRects,
+      text
+    }
     setAiRun({
       requestId,
       promptType,
@@ -506,7 +520,8 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
       reasoningOutput: '',
       status: 'running',
       error: null,
-      source: 'selection'
+      source: 'selection',
+      selectionContext
     })
     setActiveTab('ai')
     setSelection(null)
