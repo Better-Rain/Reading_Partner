@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Search, X } from 'lucide-react'
 import type { DocumentSearchResult } from '../../../shared/types'
 
@@ -8,8 +9,7 @@ type SearchPanelProps = {
   results: DocumentSearchResult[]
   onJump: (result: DocumentSearchResult) => void
   onClear: () => void
-  onQueryChange: (value: string) => void
-  onSearch: () => void
+  onSearch: (query: string) => void
 }
 
 export function SearchPanel({
@@ -19,11 +19,15 @@ export function SearchPanel({
   results,
   onJump,
   onClear,
-  onQueryChange,
   onSearch
 }: SearchPanelProps): JSX.Element {
-  const canSearch = hasDocument && query.trim().length > 0 && !isSearching
-  const canClear = query.trim().length > 0 || results.length > 0
+  const [draftQuery, setDraftQuery] = useState(query)
+  const canSearch = hasDocument && draftQuery.trim().length > 0 && !isSearching
+  const canClear = draftQuery.trim().length > 0 || results.length > 0
+
+  useEffect(() => {
+    setDraftQuery(query)
+  }, [query])
 
   return (
     <div className="inspector-content search-panel">
@@ -31,20 +35,27 @@ export function SearchPanel({
         className="search-form"
         onSubmit={(event) => {
           event.preventDefault()
-          onSearch()
+          onSearch(draftQuery)
         }}
       >
         <input
           disabled={!hasDocument}
           placeholder="搜索当前文档"
-          value={query}
-          onChange={(event) => onQueryChange(event.target.value)}
+          value={draftQuery}
+          onChange={(event) => setDraftQuery(event.target.value)}
         />
         <button disabled={!canSearch} type="submit">
           <Search size={16} />
           {isSearching ? '搜索中' : '搜索'}
         </button>
-        <button disabled={!canClear} type="button" onClick={onClear}>
+        <button
+          disabled={!canClear}
+          type="button"
+          onClick={() => {
+            setDraftQuery('')
+            onClear()
+          }}
+        >
           <X size={16} />
           结束
         </button>

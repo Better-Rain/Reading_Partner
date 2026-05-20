@@ -63,18 +63,15 @@ export type AiPanelProps = {
   readyProvider: AIProviderRecord | null
   selection: string | null
   onAskDocument: (question: string) => void
-  onChatDraftChange: (value: string) => void
-  onChatTitleDraftChange: (value: string) => void
   onCloseConversation: () => void
   onCancelRun: () => void
   onCreateConversation: () => void
   onKeepAIOperation: (operationId: string) => void
-  onQuestionChange: (value: string) => void
   onRun: (promptType: AIPromptType) => void
   onRevertAIOperation: (operationId: string) => void
   onSelectConversation: (conversationId: string) => void
   onResendChatMessage: (message: AIChatMessageRecord, content?: string) => void
-  onSendChat: (message: string) => void
+  onSendChat: (message: string, title?: string) => void
   onUpdateConversationTitle: (conversationId: string, title: string) => void
 }
 

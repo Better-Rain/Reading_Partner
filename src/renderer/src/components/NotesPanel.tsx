@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bookmark,
   Check,
@@ -181,12 +181,11 @@ type NotesPanelProps = {
   readerName: string
   onBookmark: () => void
   onDelete: (id: string) => void
-  onDraftNoteChange: (value: string) => void
   onExportReadingMarks: () => void
   onImportReadingMarks: () => void
   onFiltersChange: (filters: AnnotationFilterState) => void
   onJump: (annotation: AnnotationRecord) => void
-  onSaveNote: () => void
+  onSaveNote: (note: string) => void
   onUpdateAnnotation: (id: string, note: string, color: string | null) => void
 }
 
@@ -200,7 +199,6 @@ export function NotesPanel({
   readerName,
   onBookmark,
   onDelete,
-  onDraftNoteChange,
   onExportReadingMarks,
   onImportReadingMarks,
   onFiltersChange,
@@ -208,6 +206,16 @@ export function NotesPanel({
   onSaveNote,
   onUpdateAnnotation
 }: NotesPanelProps): JSX.Element {
+  const draftNoteRef = useRef(draftNote)
+  const draftNoteTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const filterQueryRef = useRef(filters.query)
+  const filterQueryInputRef = useRef<HTMLInputElement | null>(null)
+  const filterQueryTimerRef = useRef<number | null>(null)
+  const [appliedFilterQuery, setAppliedFilterQuery] = useState(filters.query)
+  const effectiveFilters = useMemo(
+    () => ({ ...filters, query: appliedFilterQuery }),
+    [appliedFilterQuery, filters]
+  )
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set())
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingNote, setEditingNote] = useState('')
@@ -224,31 +232,54 @@ export function NotesPanel({
     () =>
       sortAnnotations(
         annotations.filter((annotation) =>
-          matchesAnnotationFilters(annotation, filters, currentPageNumber, {
+          matchesAnnotationFilters(annotation, effectiveFilters, currentPageNumber, {
             includePageScope: true,
             includeQuery: true
           })
         ),
-        filters.sort
+        effectiveFilters.sort
       ),
-    [annotations, currentPageNumber, filters]
+    [annotations, currentPageNumber, effectiveFilters]
   )
   const visibleOnPdfCount = useMemo(
     () =>
       annotations.filter((annotation) =>
         annotation.pageNumber === currentPageNumber &&
-        filters.showOnPdf &&
-        (!filters.syncToPdf ||
-          matchesAnnotationFilters(annotation, filters, currentPageNumber, {
+        effectiveFilters.showOnPdf &&
+        (!effectiveFilters.syncToPdf ||
+          matchesAnnotationFilters(annotation, effectiveFilters, currentPageNumber, {
             includePageScope: false,
             includeQuery: true
           }))
       ).length,
-    [annotations, currentPageNumber, filters]
+    [annotations, currentPageNumber, effectiveFilters]
   )
   const updateFilters = (patch: Partial<AnnotationFilterState>): void => {
     onFiltersChange({ ...filters, ...patch })
   }
+
+  useEffect(() => {
+    filterQueryRef.current = filters.query
+    setAppliedFilterQuery(filters.query)
+    if (filterQueryInputRef.current && filterQueryInputRef.current.value !== filters.query) {
+      filterQueryInputRef.current.value = filters.query
+    }
+  }, [filters.query])
+
+  useEffect(() => {
+    draftNoteRef.current = draftNote
+    if (draftNoteTextareaRef.current && draftNoteTextareaRef.current.value !== draftNote) {
+      draftNoteTextareaRef.current.value = draftNote
+    }
+  }, [draftNote])
+
+  useEffect(() => {
+    return () => {
+      if (filterQueryTimerRef.current) {
+        window.clearTimeout(filterQueryTimerRef.current)
+      }
+    }
+  }, [])
   const toggleCategory = (category: AnnotationCategoryFilter): void => {
     const nextCategories = filters.categories.includes(category)
       ? filters.categories.filter((item) => item !== category)
@@ -260,18 +291,18 @@ export function NotesPanel({
     })
   }
   const hasActiveFilters =
-    filters.query.trim() ||
-    filters.categories.length > 0 ||
-    filters.author !== 'all' ||
-    filters.pageScope !== 'all' ||
-    filters.sort !== defaultAnnotationFilters.sort ||
-    !filters.showOnPdf ||
-    filters.syncToPdf
+    effectiveFilters.query.trim() ||
+    effectiveFilters.categories.length > 0 ||
+    effectiveFilters.author !== 'all' ||
+    effectiveFilters.pageScope !== 'all' ||
+    effectiveFilters.sort !== defaultAnnotationFilters.sort ||
+    !effectiveFilters.showOnPdf ||
+    effectiveFilters.syncToPdf
   const hasAdvancedFilters =
-    filters.query.trim() ||
-    filters.author !== 'all' ||
-    filters.sort !== defaultAnnotationFilters.sort ||
-    filters.syncToPdf
+    effectiveFilters.query.trim() ||
+    effectiveFilters.author !== 'all' ||
+    effectiveFilters.sort !== defaultAnnotationFilters.sort ||
+    effectiveFilters.syncToPdf
 
   const toggleExpanded = (id: string): void => {
     setExpandedIds((current) => {
@@ -314,11 +345,23 @@ export function NotesPanel({
         <textarea
           disabled={!hasDocument}
           placeholder="写一条页边注..."
-          value={draftNote}
-          onChange={(event) => onDraftNoteChange(event.target.value)}
+          ref={draftNoteTextareaRef}
+          defaultValue={draftNote}
+          onChange={(event) => {
+            draftNoteRef.current = event.target.value
+          }}
         />
         <div className="note-actions">
-          <button disabled={!hasDocument} onClick={onSaveNote}>
+          <button
+            disabled={!hasDocument}
+            onClick={() => {
+              onSaveNote(draftNoteRef.current)
+              draftNoteRef.current = ''
+              if (draftNoteTextareaRef.current) {
+                draftNoteTextareaRef.current.value = ''
+              }
+            }}
+          >
             <MessageSquarePlus size={16} />
             保存笔记
           </button>
@@ -415,7 +458,14 @@ export function NotesPanel({
             className="annotation-filter-reset"
             disabled={!hasActiveFilters}
             title="重置筛选"
-            onClick={() => onFiltersChange(defaultAnnotationFilters)}
+            onClick={() => {
+              filterQueryRef.current = defaultAnnotationFilters.query
+              setAppliedFilterQuery(defaultAnnotationFilters.query)
+              if (filterQueryInputRef.current) {
+                filterQueryInputRef.current.value = defaultAnnotationFilters.query
+              }
+              onFiltersChange(defaultAnnotationFilters)
+            }}
           >
             <X size={15} />
           </button>
@@ -431,8 +481,25 @@ export function NotesPanel({
               <input
                 disabled={!hasDocument}
                 placeholder="搜索批注、原文、作者或页码"
-                value={filters.query}
-                onChange={(event) => updateFilters({ query: event.target.value })}
+                ref={filterQueryInputRef}
+                defaultValue={filters.query}
+                onChange={(event) => {
+                  filterQueryRef.current = event.target.value
+                  if (filterQueryTimerRef.current) {
+                    window.clearTimeout(filterQueryTimerRef.current)
+                  }
+                  filterQueryTimerRef.current = window.setTimeout(() => {
+                    setAppliedFilterQuery(filterQueryRef.current)
+                  }, 160)
+                }}
+                onBlur={() => {
+                  if (filterQueryTimerRef.current) {
+                    window.clearTimeout(filterQueryTimerRef.current)
+                    filterQueryTimerRef.current = null
+                  }
+                  setAppliedFilterQuery(filterQueryRef.current)
+                  updateFilters({ query: filterQueryRef.current })
+                }}
               />
             </div>
             <div className="annotation-filter-grid">

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Check, KeyRound, Pencil, X } from 'lucide-react'
 import type { AIProviderRecord } from '../../../shared/types'
 
@@ -23,9 +23,14 @@ export function SettingsPanel({
   onToggle,
   onUpdateModel
 }: SettingsPanelProps): JSX.Element {
+  const [readerNameDraft, setReaderNameDraft] = useState(readerName)
   const [draftKeys, setDraftKeys] = useState<Record<string, string>>({})
   const [editingModelId, setEditingModelId] = useState<string | null>(null)
   const [modelDrafts, setModelDrafts] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    setReaderNameDraft(readerName)
+  }, [readerName])
 
   return (
     <div className="inspector-content">
@@ -41,8 +46,9 @@ export function SettingsPanel({
         </div>
         <input
           placeholder="例如：Rain"
-          value={readerName}
-          onChange={(event) => onReaderNameChange(event.target.value)}
+          value={readerNameDraft}
+          onChange={(event) => setReaderNameDraft(event.target.value)}
+          onBlur={() => onReaderNameChange(readerNameDraft)}
         />
       </section>
 

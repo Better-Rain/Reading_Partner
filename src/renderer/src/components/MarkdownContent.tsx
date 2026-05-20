@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { extractAIReasoning, stripAIAssistedAnnotationBlock } from '../aiText'
@@ -84,159 +84,163 @@ function ReasoningDisclosure({ text }: { text: string }): JSX.Element {
   )
 }
 
-export function MarkdownContent({ text }: { text: string }): JSX.Element {
+function MarkdownContentComponent({ text }: { text: string }): JSX.Element {
   const { reasoning, content } = extractAIReasoning(stripAIAssistedAnnotationBlock(text))
-  const lines = content.replace(/\r\n/g, '\n').split('\n')
-  const blocks: ReactNode[] = []
-  let index = 0
-
-  while (index < lines.length) {
-    const line = lines[index]
-    const trimmed = line.trim()
-
-    if (!trimmed) {
-      index += 1
-      continue
-    }
-
-    if (trimmed.startsWith('### ')) {
-      blocks.push(<h3 key={index}>{renderInlineMarkdown(trimmed.slice(4))}</h3>)
-      index += 1
-      continue
-    }
-
-    if (trimmed.startsWith('## ')) {
-      blocks.push(<h2 key={index}>{renderInlineMarkdown(trimmed.slice(3))}</h2>)
-      index += 1
-      continue
-    }
-
-    if (trimmed.startsWith('# ')) {
-      blocks.push(<h2 key={index}>{renderInlineMarkdown(trimmed.slice(2))}</h2>)
-      index += 1
-      continue
-    }
-
-    if (isMarkdownTableStart(lines, index)) {
-      const blockIndex = index
-      const header = splitMarkdownTableRow(lines[index])
-      const columnCount = Math.max(header.length, 1)
-      const rows: string[][] = []
-      index += 2
-
-      while (index < lines.length && isMarkdownTableRow(lines[index])) {
-        rows.push(normalizeMarkdownTableCells(splitMarkdownTableRow(lines[index]), columnCount))
-        index += 1
-      }
-
-      blocks.push(
-        <div className="markdown-table-scroll" key={blockIndex}>
-          <table>
-            <thead>
-              <tr>
-                {normalizeMarkdownTableCells(header, columnCount).map((cell, cellIndex) => (
-                  <th key={`${blockIndex}-h-${cellIndex}`}>{renderInlineMarkdown(cell)}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, rowIndex) => (
-                <tr key={`${blockIndex}-r-${rowIndex}`}>
-                  {row.map((cell, cellIndex) => (
-                    <td key={`${blockIndex}-r-${rowIndex}-${cellIndex}`}>
-                      {renderInlineMarkdown(cell)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )
-      continue
-    }
-
-    if (trimmed.startsWith('> ')) {
-      const items: string[] = []
-      const blockIndex = index
-
-      while (index < lines.length && lines[index].trim().startsWith('> ')) {
-        items.push(lines[index].trim().slice(2))
-        index += 1
-      }
-
-      blocks.push(
-        <blockquote key={blockIndex}>
-          {items.map((item, itemIndex) => (
-            <p key={`${blockIndex}-${itemIndex}`}>{renderInlineMarkdown(item)}</p>
-          ))}
-        </blockquote>
-      )
-      continue
-    }
-
-    if (/^[-*]\s+/.test(trimmed)) {
-      const items: string[] = []
-      const blockIndex = index
-
-      while (index < lines.length && /^[-*]\s+/.test(lines[index].trim())) {
-        items.push(lines[index].trim().replace(/^[-*]\s+/, ''))
-        index += 1
-      }
-
-      blocks.push(
-        <ul key={blockIndex}>
-          {items.map((item, itemIndex) => (
-            <li key={`${blockIndex}-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
-          ))}
-        </ul>
-      )
-      continue
-    }
-
-    if (/^\d+\.\s+/.test(trimmed)) {
-      const items: string[] = []
-      const blockIndex = index
-
-      while (index < lines.length && /^\d+\.\s+/.test(lines[index].trim())) {
-        items.push(lines[index].trim().replace(/^\d+\.\s+/, ''))
-        index += 1
-      }
-
-      blocks.push(
-        <ol key={blockIndex}>
-          {items.map((item, itemIndex) => (
-            <li key={`${blockIndex}-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
-          ))}
-        </ol>
-      )
-      continue
-    }
-
-    const paragraph: string[] = [trimmed]
-    const blockIndex = index
-    index += 1
+  const blocks = useMemo(() => {
+    const lines = content.replace(/\r\n/g, '\n').split('\n')
+    const nextBlocks: ReactNode[] = []
+    let index = 0
 
     while (index < lines.length) {
-      const next = lines[index].trim()
+      const line = lines[index]
+      const trimmed = line.trim()
 
-      if (
-        !next ||
-        next.startsWith('#') ||
-        next.startsWith('> ') ||
-        isMarkdownTableStart(lines, index) ||
-        /^[-*]\s+/.test(next) ||
-        /^\d+\.\s+/.test(next)
-      ) {
-        break
+      if (!trimmed) {
+        index += 1
+        continue
       }
 
-      paragraph.push(next)
+      if (trimmed.startsWith('### ')) {
+        nextBlocks.push(<h3 key={index}>{renderInlineMarkdown(trimmed.slice(4))}</h3>)
+        index += 1
+        continue
+      }
+
+      if (trimmed.startsWith('## ')) {
+        nextBlocks.push(<h2 key={index}>{renderInlineMarkdown(trimmed.slice(3))}</h2>)
+        index += 1
+        continue
+      }
+
+      if (trimmed.startsWith('# ')) {
+        nextBlocks.push(<h2 key={index}>{renderInlineMarkdown(trimmed.slice(2))}</h2>)
+        index += 1
+        continue
+      }
+
+      if (isMarkdownTableStart(lines, index)) {
+        const blockIndex = index
+        const header = splitMarkdownTableRow(lines[index])
+        const columnCount = Math.max(header.length, 1)
+        const rows: string[][] = []
+        index += 2
+
+        while (index < lines.length && isMarkdownTableRow(lines[index])) {
+          rows.push(normalizeMarkdownTableCells(splitMarkdownTableRow(lines[index]), columnCount))
+          index += 1
+        }
+
+        nextBlocks.push(
+          <div className="markdown-table-scroll" key={blockIndex}>
+            <table>
+              <thead>
+                <tr>
+                  {normalizeMarkdownTableCells(header, columnCount).map((cell, cellIndex) => (
+                    <th key={`${blockIndex}-h-${cellIndex}`}>{renderInlineMarkdown(cell)}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, rowIndex) => (
+                  <tr key={`${blockIndex}-r-${rowIndex}`}>
+                    {row.map((cell, cellIndex) => (
+                      <td key={`${blockIndex}-r-${rowIndex}-${cellIndex}`}>
+                        {renderInlineMarkdown(cell)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+        continue
+      }
+
+      if (trimmed.startsWith('> ')) {
+        const items: string[] = []
+        const blockIndex = index
+
+        while (index < lines.length && lines[index].trim().startsWith('> ')) {
+          items.push(lines[index].trim().slice(2))
+          index += 1
+        }
+
+        nextBlocks.push(
+          <blockquote key={blockIndex}>
+            {items.map((item, itemIndex) => (
+              <p key={`${blockIndex}-${itemIndex}`}>{renderInlineMarkdown(item)}</p>
+            ))}
+          </blockquote>
+        )
+        continue
+      }
+
+      if (/^[-*]\s+/.test(trimmed)) {
+        const items: string[] = []
+        const blockIndex = index
+
+        while (index < lines.length && /^[-*]\s+/.test(lines[index].trim())) {
+          items.push(lines[index].trim().replace(/^[-*]\s+/, ''))
+          index += 1
+        }
+
+        nextBlocks.push(
+          <ul key={blockIndex}>
+            {items.map((item, itemIndex) => (
+              <li key={`${blockIndex}-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
+            ))}
+          </ul>
+        )
+        continue
+      }
+
+      if (/^\d+\.\s+/.test(trimmed)) {
+        const items: string[] = []
+        const blockIndex = index
+
+        while (index < lines.length && /^\d+\.\s+/.test(lines[index].trim())) {
+          items.push(lines[index].trim().replace(/^\d+\.\s+/, ''))
+          index += 1
+        }
+
+        nextBlocks.push(
+          <ol key={blockIndex}>
+            {items.map((item, itemIndex) => (
+              <li key={`${blockIndex}-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
+            ))}
+          </ol>
+        )
+        continue
+      }
+
+      const paragraph: string[] = [trimmed]
+      const blockIndex = index
       index += 1
+
+      while (index < lines.length) {
+        const next = lines[index].trim()
+
+        if (
+          !next ||
+          next.startsWith('#') ||
+          next.startsWith('> ') ||
+          isMarkdownTableStart(lines, index) ||
+          /^[-*]\s+/.test(next) ||
+          /^\d+\.\s+/.test(next)
+        ) {
+          break
+        }
+
+        paragraph.push(next)
+        index += 1
+      }
+
+      nextBlocks.push(<p key={blockIndex}>{renderInlineMarkdown(paragraph.join(' '))}</p>)
     }
 
-    blocks.push(<p key={blockIndex}>{renderInlineMarkdown(paragraph.join(' '))}</p>)
-  }
+    return nextBlocks
+  }, [content])
 
   return (
     <div className="markdown-content">
@@ -245,3 +249,5 @@ export function MarkdownContent({ text }: { text: string }): JSX.Element {
     </div>
   )
 }
+
+export const MarkdownContent = memo(MarkdownContentComponent)

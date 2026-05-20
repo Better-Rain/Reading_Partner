@@ -226,7 +226,7 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
   defineVocabularyWithAI: (item: VocabularyRecord) => Promise<void>
   resendChatMessage: (message: AIChatMessageRecord, contentOverride?: string) => Promise<void>
   runAIAction: (promptType: AIPromptType, text?: string) => Promise<void>
-  sendChatMessage: (message: string) => Promise<void>
+  sendChatMessage: (message: string, title?: string) => Promise<void>
 } => {
   const [aiRun, setAiRun] = useState<AIRunState | null>(null)
   const aiRunRef = useRef<AIRunState | null>(null)
@@ -598,7 +598,7 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
     })
   }
 
-  const sendChatMessage = async (message: string): Promise<void> => {
+  const sendChatMessage = async (message: string, title?: string): Promise<void> => {
     const {
       activeConversation,
       activeDocument,
@@ -634,9 +634,10 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
       return
     }
 
+    const conversationTitle = title?.trim() || chatTitleDraft.trim() || makeConversationTitle(trimmed)
     const conversation =
       activeConversation ??
-      (await createAIConversation(chatTitleDraft.trim() || makeConversationTitle(trimmed)))
+      (await createAIConversation(conversationTitle))
 
     if (!conversation) {
       return

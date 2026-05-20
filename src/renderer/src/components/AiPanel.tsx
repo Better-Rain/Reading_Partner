@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bot,
   Check,
@@ -26,7 +26,7 @@ const getAIOperationAnnotationTitle = (annotation: AnnotationRecord): string => 
   return noteLine || getAnnotationPreview(annotation)
 }
 
-function AIOperationList({
+const AIOperationList = memo(function AIOperationList({
   operations,
   onKeep,
   onRevert
@@ -85,7 +85,7 @@ function AIOperationList({
       })}
     </div>
   )
-}
+})
 
 export function AiPanel({
   activeConversationId,
@@ -101,13 +101,10 @@ export function AiPanel({
   readyProvider,
   selection,
   onAskDocument,
-  onChatDraftChange,
-  onChatTitleDraftChange,
   onCloseConversation,
   onCancelRun,
   onCreateConversation,
   onKeepAIOperation,
-  onQuestionChange,
   onRun,
   onRevertAIOperation,
   onResendChatMessage,
@@ -115,32 +112,66 @@ export function AiPanel({
   onSendChat,
   onUpdateConversationTitle
 }: AiPanelProps): JSX.Element {
-  const canAskDocument =
-    hasDocument && Boolean(readyProvider) && question.trim().length > 0 && aiRun?.status !== 'running'
-  const canSendChat =
-    hasDocument && Boolean(readyProvider) && chatDraft.trim().length > 0 && aiRun?.status !== 'running'
+  const canAskDocument = hasDocument && Boolean(readyProvider) && aiRun?.status !== 'running'
+  const canSendChat = hasDocument && Boolean(readyProvider) && aiRun?.status !== 'running'
   const activeChatRunning = aiRun?.source === 'chat' && aiRun.status === 'running'
   const canResendChat = hasDocument && Boolean(readyProvider) && aiRun?.status !== 'running'
   const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId)
   const isCreatingConversation = isConversationOpen && activeConversationId === null
-  const visibleOperations = aiOperations.filter((operation) =>
-    isConversationOpen && activeConversationId
-      ? operation.conversationId === activeConversationId
-      : !operation.conversationId
+  const visibleOperations = useMemo(
+    () =>
+      aiOperations.filter((operation) =>
+        isConversationOpen && activeConversationId
+          ? operation.conversationId === activeConversationId
+          : !operation.conversationId
+      ),
+    [activeConversationId, aiOperations, isConversationOpen]
   )
   const chatMessageListRef = useRef<HTMLDivElement | null>(null)
   const shouldStickToBottomRef = useRef(true)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
-  const [titleEditDraft, setTitleEditDraft] = useState(activeConversation?.title ?? '')
   const [resendEditId, setResendEditId] = useState<string | null>(null)
-  const [resendEditDraft, setResendEditDraft] = useState('')
+  const chatDraftRef = useRef(chatDraft)
+  const chatTitleDraftRef = useRef(chatTitleDraft)
+  const questionDraftRef = useRef(question)
+  const titleEditDraftRef = useRef(activeConversation?.title ?? '')
+  const resendEditDraftRef = useRef('')
+  const chatTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const chatTitleInputRef = useRef<HTMLInputElement | null>(null)
+  const questionTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const titleEditInputRef = useRef<HTMLInputElement | null>(null)
+  const resendEditTextareaRef = useRef<HTMLTextAreaElement | null>(null)
 
   useEffect(() => {
-    setTitleEditDraft(activeConversation?.title ?? '')
+    titleEditDraftRef.current = activeConversation?.title ?? ''
+    if (titleEditInputRef.current) {
+      titleEditInputRef.current.value = titleEditDraftRef.current
+    }
     setIsEditingTitle(false)
     setResendEditId(null)
-    setResendEditDraft('')
+    resendEditDraftRef.current = ''
   }, [activeConversation?.id, activeConversation?.title])
+
+  useEffect(() => {
+    chatDraftRef.current = chatDraft
+    if (chatTextareaRef.current && chatTextareaRef.current.value !== chatDraft) {
+      chatTextareaRef.current.value = chatDraft
+    }
+  }, [activeConversationId, chatDraft, isConversationOpen])
+
+  useEffect(() => {
+    chatTitleDraftRef.current = chatTitleDraft
+    if (chatTitleInputRef.current && chatTitleInputRef.current.value !== chatTitleDraft) {
+      chatTitleInputRef.current.value = chatTitleDraft
+    }
+  }, [activeConversationId, chatTitleDraft, isConversationOpen])
+
+  useEffect(() => {
+    questionDraftRef.current = question
+    if (questionTextareaRef.current && questionTextareaRef.current.value !== question) {
+      questionTextareaRef.current.value = question
+    }
+  }, [activeConversationId, isConversationOpen, question])
 
   useEffect(() => {
     if (!isConversationOpen) {
@@ -191,21 +222,27 @@ export function AiPanel({
               <input
                 className="chat-title-input"
                 placeholder="对话名称（可选，留空自动生成）"
-                value={chatTitleDraft}
-                onChange={(event) => onChatTitleDraftChange(event.target.value)}
+                ref={chatTitleInputRef}
+                defaultValue={chatTitleDraft}
+                onChange={(event) => {
+                  chatTitleDraftRef.current = event.target.value
+                }}
               />
             ) : isEditingTitle ? (
               <div className="chat-title-editor">
                 <input
                   autoFocus
-                  value={titleEditDraft}
-                  onChange={(event) => setTitleEditDraft(event.target.value)}
+                  ref={titleEditInputRef}
+                  defaultValue={titleEditDraftRef.current}
+                  onChange={(event) => {
+                    titleEditDraftRef.current = event.target.value
+                  }}
                 />
                 <button
                   className="text-button neutral"
                   onClick={() => {
                     if (activeConversation) {
-                      onUpdateConversationTitle(activeConversation.id, titleEditDraft)
+                      onUpdateConversationTitle(activeConversation.id, titleEditDraftRef.current)
                     }
                     setIsEditingTitle(false)
                   }}
@@ -216,7 +253,10 @@ export function AiPanel({
                 <button
                   className="text-button"
                   onClick={() => {
-                    setTitleEditDraft(activeConversation?.title ?? '')
+                    titleEditDraftRef.current = activeConversation?.title ?? ''
+                    if (titleEditInputRef.current) {
+                      titleEditInputRef.current.value = titleEditDraftRef.current
+                    }
                     setIsEditingTitle(false)
                   }}
                 >
@@ -263,7 +303,7 @@ export function AiPanel({
                       type="button"
                       onClick={() => {
                         setResendEditId(message.id)
-                        setResendEditDraft(message.content)
+                        resendEditDraftRef.current = message.content
                       }}
                     >
                       <RotateCcw size={13} />
@@ -277,7 +317,7 @@ export function AiPanel({
                     className="chat-resend-editor"
                     onSubmit={(event) => {
                       event.preventDefault()
-                      const trimmed = resendEditDraft.trim()
+                      const trimmed = resendEditDraftRef.current.trim()
 
                       if (!trimmed) {
                         return
@@ -285,18 +325,21 @@ export function AiPanel({
 
                       onResendChatMessage(message, trimmed)
                       setResendEditId(null)
-                      setResendEditDraft('')
+                      resendEditDraftRef.current = ''
                     }}
                   >
                     <textarea
                       autoFocus
-                      value={resendEditDraft}
-                      onChange={(event) => setResendEditDraft(event.target.value)}
+                      ref={resendEditTextareaRef}
+                      defaultValue={resendEditDraftRef.current}
+                      onChange={(event) => {
+                        resendEditDraftRef.current = event.target.value
+                      }}
                     />
                     <div>
                       <button
                         className="text-button neutral"
-                        disabled={!canResendChat || !resendEditDraft.trim()}
+                        disabled={!canResendChat}
                         type="submit"
                       >
                         <Send size={13} />
@@ -307,7 +350,7 @@ export function AiPanel({
                         type="button"
                         onClick={() => {
                           setResendEditId(null)
-                          setResendEditDraft('')
+                          resendEditDraftRef.current = ''
                         }}
                       >
                         <X size={13} />
@@ -347,14 +390,29 @@ export function AiPanel({
           className="chat-composer"
           onSubmit={(event) => {
             event.preventDefault()
-            onSendChat(chatDraft)
+            const trimmed = chatDraftRef.current.trim()
+
+            if (!trimmed) {
+              return
+            }
+
+            onSendChat(trimmed, chatTitleDraftRef.current)
+            chatDraftRef.current = ''
+            chatTitleDraftRef.current = ''
+            if (chatTitleInputRef.current) {
+              chatTitleInputRef.current.value = ''
+            }
+            event.currentTarget.reset()
           }}
         >
           <textarea
             disabled={!hasDocument}
             placeholder={selection ? '结合当前选区继续追问...' : '继续和文档对话...'}
-            value={chatDraft}
-            onChange={(event) => onChatDraftChange(event.target.value)}
+            ref={chatTextareaRef}
+            defaultValue={chatDraft}
+            onChange={(event) => {
+              chatDraftRef.current = event.target.value
+            }}
           />
           <button disabled={!canSendChat} type="submit">
             <Send size={16} />
@@ -414,14 +472,25 @@ export function AiPanel({
         className="document-qa"
         onSubmit={(event) => {
           event.preventDefault()
-          onAskDocument(question)
+          const trimmed = questionDraftRef.current.trim()
+
+          if (!trimmed) {
+            return
+          }
+
+          onAskDocument(trimmed)
+          questionDraftRef.current = ''
+          event.currentTarget.reset()
         }}
       >
         <textarea
           disabled={!hasDocument}
           placeholder="一次性文档问答..."
-          value={question}
-          onChange={(event) => onQuestionChange(event.target.value)}
+          ref={questionTextareaRef}
+          defaultValue={question}
+          onChange={(event) => {
+            questionDraftRef.current = event.target.value
+          }}
         />
         <button disabled={!canAskDocument} type="submit">
           <Send size={16} />

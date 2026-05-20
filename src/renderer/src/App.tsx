@@ -474,6 +474,7 @@ function App(): JSX.Element {
       return
     }
 
+    setSearchQuery(trimmed)
     setIsSearching(true)
     setActiveSearchTarget(null)
     setTemporarySearchHighlight(null)
@@ -1073,7 +1074,6 @@ function App(): JSX.Element {
             onCreateNote={(note) => void createAnnotation('note', note)}
             onCreateVocabulary={() => void createVocabularyFromSelection()}
             onExplain={() => void runAIAction('explain_selection')}
-            onNoteDraftChange={setSelectionNoteDraft}
             onToggleNoteEditor={() => setIsSelectionNoteEditorOpen((value) => !value)}
             onTranslate={() => void runAIAction('translate_selection')}
           />
@@ -1104,7 +1104,6 @@ function App(): JSX.Element {
             readerName={readerName}
             onBookmark={() => void createAnnotation('bookmark')}
             onDelete={(id) => void deleteAnnotation(id)}
-            onDraftNoteChange={setDraftNote}
             onExportReadingMarks={() => void exportReadingMarks()}
             onImportReadingMarks={() => void importReadingMarks()}
             onFiltersChange={setAnnotationFilters}
@@ -1113,7 +1112,7 @@ function App(): JSX.Element {
               setPageNumber(annotation.pageNumber)
               setStatus(`已跳转到第 ${annotation.pageNumber} 页`)
             }}
-            onSaveNote={() => void createAnnotation('note', draftNote || '空白页边注')}
+            onSaveNote={(note) => void createAnnotation('note', note || '空白页边注')}
             onUpdateAnnotation={(id, note, color) => void updateAnnotation(id, note, color)}
           />
         )}
@@ -1135,12 +1134,7 @@ function App(): JSX.Element {
               setPageNumber(result.pageNumber)
               setStatus(`已跳转到第 ${result.pageNumber} 页，正在定位搜索片段`)
             }}
-            onQueryChange={(value) => {
-              setSearchQuery(value)
-              setActiveSearchTarget(null)
-              setTemporarySearchHighlight(null)
-            }}
-            onSearch={() => void searchDocument()}
+            onSearch={(query) => void searchDocument(query)}
             onClear={clearSearch}
           />
         )}
@@ -1161,16 +1155,13 @@ function App(): JSX.Element {
             activeConversationId={activeConversationId}
             onAskDocument={(question) => void askDocumentQuestion(question)}
             onCancelRun={() => void cancelCurrentAIRun()}
-            onChatDraftChange={setChatDraft}
-            onChatTitleDraftChange={setChatTitleDraft}
             onCloseConversation={() => setIsChatDrawerOpen(false)}
             onCreateConversation={startNewAIConversation}
             onKeepAIOperation={keepAIOperation}
             onRevertAIOperation={(operationId) => void revertAIOperation(operationId)}
             onResendChatMessage={(message, content) => void resendChatMessage(message, content)}
-            onSendChat={(message) => void sendChatMessage(message)}
+            onSendChat={(message, title) => void sendChatMessage(message, title)}
             onSelectConversation={(conversationId) => void selectAIConversation(conversationId)}
-            onQuestionChange={setQaQuestion}
             onRun={(promptType) => void runAIAction(promptType)}
             onUpdateConversationTitle={(conversationId, title) =>
               void updateAIConversationTitle(conversationId, title)

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { BookMarked, Search, Sparkles, Trash2, Upload } from 'lucide-react'
 import type {
   DictionaryEntryRecord,
@@ -70,8 +70,12 @@ const parseVocabularyDefinition = (definition: string): VocabularyDefinitionView
   return { label, phonetic, parts, tags }
 }
 
-function VocabularyDefinition({ definition }: { definition: string }): JSX.Element {
-  const parsed = parseVocabularyDefinition(definition)
+const VocabularyDefinition = memo(function VocabularyDefinition({
+  definition
+}: {
+  definition: string
+}): JSX.Element {
+  const parsed = useMemo(() => parseVocabularyDefinition(definition), [definition])
 
   return (
     <div className="vocabulary-definition">
@@ -96,7 +100,7 @@ function VocabularyDefinition({ definition }: { definition: string }): JSX.Eleme
       )}
     </div>
   )
-}
+})
 
 function formatDictionarySource(source: string): string {
   const trimmed = source.trim()
@@ -122,8 +126,8 @@ function DictionaryEntryCard({
   isSaved: boolean
   onAdd: (entry: DictionaryEntryRecord) => void
 }): JSX.Element {
-  const definition = makeDefinitionFromDictionary(entry)
-  const sourceLabel = formatDictionarySource(entry.source)
+  const definition = useMemo(() => makeDefinitionFromDictionary(entry), [entry])
+  const sourceLabel = useMemo(() => formatDictionarySource(entry.source), [entry.source])
 
   return (
     <article className="dictionary-entry-card">
@@ -155,28 +159,35 @@ export function VocabularyPanel({
   onDelete,
   onImportDictionary
 }: VocabularyPanelProps): JSX.Element {
-  const [query, setQuery] = useState('')
-  const [dictionaryQuery, setDictionaryQuery] = useState('')
+  const queryRef = useRef('')
+  const dictionaryQueryRef = useRef('')
+  const queryTimerRef = useRef<number | null>(null)
+  const dictionaryQueryTimerRef = useRef<number | null>(null)
+  const [appliedQuery, setAppliedQuery] = useState('')
+  const [appliedDictionaryQuery, setAppliedDictionaryQuery] = useState('')
   const [dictionarySuggestions, setDictionarySuggestions] = useState<DictionaryEntryRecord[]>([])
   const [hasDictionarySearched, setHasDictionarySearched] = useState(false)
   const [isDictionarySearching, setIsDictionarySearching] = useState(false)
   const [dictionaryError, setDictionaryError] = useState<string | null>(null)
-  const normalizedQuery = query.trim().toLocaleLowerCase()
-  const filteredVocabulary = normalizedQuery
-    ? vocabulary.filter((item) =>
-        [item.word, item.definition, item.sourceSentence ?? '']
-          .join(' ')
-          .toLocaleLowerCase()
-          .includes(normalizedQuery)
-      )
-    : vocabulary
+  const filteredVocabulary = useMemo(() => {
+    const normalizedQuery = appliedQuery.trim().toLocaleLowerCase()
+
+    return normalizedQuery
+      ? vocabulary.filter((item) =>
+          [item.word, item.definition, item.sourceSentence ?? '']
+            .join(' ')
+            .toLocaleLowerCase()
+            .includes(normalizedQuery)
+        )
+      : vocabulary
+  }, [appliedQuery, vocabulary])
   const savedWords = useMemo(
     () => new Set(vocabulary.map((item) => item.word.trim().toLocaleLowerCase())),
     [vocabulary]
   )
 
   useEffect(() => {
-    const trimmed = dictionaryQuery.trim()
+    const trimmed = appliedDictionaryQuery.trim()
 
     if (!trimmed) {
       setDictionarySuggestions([])
@@ -222,7 +233,18 @@ export function VocabularyPanel({
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [dictionaryQuery])
+  }, [appliedDictionaryQuery])
+
+  useEffect(() => {
+    return () => {
+      if (queryTimerRef.current) {
+        window.clearTimeout(queryTimerRef.current)
+      }
+      if (dictionaryQueryTimerRef.current) {
+        window.clearTimeout(dictionaryQueryTimerRef.current)
+      }
+    }
+  }, [])
 
   return (
     <div className="inspector-content vocabulary-panel">
@@ -248,8 +270,23 @@ export function VocabularyPanel({
           >
             <input
               placeholder="查询任意单词或短语"
-              value={dictionaryQuery}
-              onChange={(event) => setDictionaryQuery(event.target.value)}
+              defaultValue=""
+              onChange={(event) => {
+                dictionaryQueryRef.current = event.target.value
+                if (dictionaryQueryTimerRef.current) {
+                  window.clearTimeout(dictionaryQueryTimerRef.current)
+                }
+                dictionaryQueryTimerRef.current = window.setTimeout(() => {
+                  setAppliedDictionaryQuery(dictionaryQueryRef.current)
+                }, 180)
+              }}
+              onBlur={() => {
+                if (dictionaryQueryTimerRef.current) {
+                  window.clearTimeout(dictionaryQueryTimerRef.current)
+                  dictionaryQueryTimerRef.current = null
+                }
+                setAppliedDictionaryQuery(dictionaryQueryRef.current)
+              }}
             />
             <button disabled type="submit">
               <Search size={15} />
@@ -271,7 +308,7 @@ export function VocabularyPanel({
               ))}
             </div>
           ) : hasDictionarySearched ? (
-            <p className="muted">本地词典中没有找到“{dictionaryQuery.trim()}”。</p>
+            <p className="muted">本地词典中没有找到“{appliedDictionaryQuery.trim()}”。</p>
           ) : (
             <p className="muted">输入时会自动联想本地词典候选，再按需加入当前 PDF 生词本。</p>
           )}
@@ -284,8 +321,23 @@ export function VocabularyPanel({
           </div>
           <input
             placeholder="搜索已加入的生词、释义或原句"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            defaultValue=""
+            onChange={(event) => {
+              queryRef.current = event.target.value
+              if (queryTimerRef.current) {
+                window.clearTimeout(queryTimerRef.current)
+              }
+              queryTimerRef.current = window.setTimeout(() => {
+                setAppliedQuery(queryRef.current)
+              }, 120)
+            }}
+            onBlur={() => {
+              if (queryTimerRef.current) {
+                window.clearTimeout(queryTimerRef.current)
+                queryTimerRef.current = null
+              }
+              setAppliedQuery(queryRef.current)
+            }}
           />
         </section>
       </div>

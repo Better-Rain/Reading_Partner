@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import {
   BookMarked,
   Check,
@@ -18,7 +19,6 @@ type SelectionToolbarProps = {
   onCreateNote: (note: string) => void
   onCreateVocabulary: () => void
   onExplain: () => void
-  onNoteDraftChange: (value: string) => void
   onToggleNoteEditor: () => void
   onTranslate: () => void
 }
@@ -33,10 +33,19 @@ export function SelectionToolbar({
   onCreateNote,
   onCreateVocabulary,
   onExplain,
-  onNoteDraftChange,
   onToggleNoteEditor,
   onTranslate
 }: SelectionToolbarProps): JSX.Element {
+  const noteDraftRef = useRef(noteDraft)
+  const noteTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+
+  useEffect(() => {
+    noteDraftRef.current = noteDraft
+    if (noteTextareaRef.current && noteTextareaRef.current.value !== noteDraft) {
+      noteTextareaRef.current.value = noteDraft
+    }
+  }, [noteDraft, isNoteEditorOpen])
+
   return (
     <div
       className={isNoteEditorOpen ? 'selection-toolbar has-note-editor' : 'selection-toolbar'}
@@ -69,12 +78,15 @@ export function SelectionToolbar({
         <div className="selection-note-editor">
           <textarea
             autoFocus
+            ref={noteTextareaRef}
             placeholder="写下这段原文的批注..."
-            value={noteDraft}
-            onChange={(event) => onNoteDraftChange(event.target.value)}
+            defaultValue={noteDraft}
+            onChange={(event) => {
+              noteDraftRef.current = event.target.value
+            }}
           />
           <div className="selection-note-actions">
-            <button title="保存批注" onClick={() => onCreateNote(noteDraft.trim() || '待补充笔记')}>
+            <button title="保存批注" onClick={() => onCreateNote(noteDraftRef.current.trim() || '待补充笔记')}>
               <Check size={15} />
               保存
             </button>
