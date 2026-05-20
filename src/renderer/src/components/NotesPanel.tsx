@@ -233,15 +233,19 @@ export function NotesPanel({
       ),
     [annotations, currentPageNumber, filters]
   )
-  const visibleOnPdfCount = annotations.filter((annotation) =>
-    annotation.pageNumber === currentPageNumber &&
-    filters.showOnPdf &&
-    (!filters.syncToPdf ||
-      matchesAnnotationFilters(annotation, filters, currentPageNumber, {
-        includePageScope: false,
-        includeQuery: true
-      }))
-  ).length
+  const visibleOnPdfCount = useMemo(
+    () =>
+      annotations.filter((annotation) =>
+        annotation.pageNumber === currentPageNumber &&
+        filters.showOnPdf &&
+        (!filters.syncToPdf ||
+          matchesAnnotationFilters(annotation, filters, currentPageNumber, {
+            includePageScope: false,
+            includeQuery: true
+          }))
+      ).length,
+    [annotations, currentPageNumber, filters]
+  )
   const updateFilters = (patch: Partial<AnnotationFilterState>): void => {
     onFiltersChange({ ...filters, ...patch })
   }

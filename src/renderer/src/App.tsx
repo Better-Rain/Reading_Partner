@@ -117,6 +117,16 @@ const clampPageNumber = (value: number, pageLimit?: number | null): number => {
 const getInitialPageNumber = (document: DocumentRecord): number =>
   clampPageNumber(document.lastPageNumber, document.pageCount)
 
+const useEventCallback = <T extends (...args: any[]) => unknown>(callback: T): T => {
+  const callbackRef = useRef(callback)
+  callbackRef.current = callback
+
+  return useMemo(
+    () =>
+      ((...args: Parameters<T>) => callbackRef.current(...args)) as T,
+    []
+  )
+}
 
 function App(): JSX.Element {
   const [documents, setDocuments] = useState<DocumentRecord[]>([])
@@ -190,7 +200,6 @@ function App(): JSX.Element {
         : null,
     [pageNumber, temporarySearchHighlight]
   )
-
   const pdfFile = useMemo<Source | null>(() => (pdfUrl ? { url: pdfUrl } : null), [pdfUrl])
 
   const configuredProviderIds = useMemo(
@@ -321,6 +330,7 @@ function App(): JSX.Element {
     setActiveDocument,
     setStatus
   })
+  const isTextIndexingActive = Boolean(textIndexRun && textIndexRun.documentId === activeDocument?.id)
   const {
     pushAnnotationUndo,
     resetAnnotationUndoStack,
@@ -878,6 +888,62 @@ function App(): JSX.Element {
     setIsWindowMaximized(maximized)
   }
 
+  const handleLibraryLoadDocument = useEventCallback((document: DocumentRecord) => {
+    void loadDocument(document)
+  })
+  const handleOpenPdf = useEventCallback(() => {
+    void openPdf()
+  })
+  const handleToggleLibraryCollapsed = useEventCallback(() => {
+    setIsLibraryCollapsed((value) => !value)
+  })
+  const handleAnnotationInteractionModeChange = useEventCallback(
+    (mode: AnnotationInteractionMode) => {
+      setAnnotationInteractionMode(mode)
+    }
+  )
+  const handleColorChange = useEventCallback((color: string) => {
+    setSelectedAnnotationColor(color)
+  })
+  const handleCancelTextIndex = useEventCallback(() => {
+    void cancelCurrentDocumentTextIndex()
+  })
+  const handleCancelOcr = useEventCallback(() => {
+    cancelOcr()
+  })
+  const handleRunDocumentOcr = useEventCallback(() => {
+    void runDocumentOcr()
+  })
+  const handleRunCurrentPageOcr = useEventCallback(() => {
+    void runCurrentPageOcr()
+  })
+  const handleNextPage = useEventCallback(() => {
+    requestReaderViewportReset()
+    setPageNumber((value) => Math.min(pageCount, value + 1))
+  })
+  const handlePageNumberChange = useEventCallback((nextPageNumber: number) => {
+    requestReaderViewportReset()
+    setPageNumber(nextPageNumber)
+  })
+  const handlePreviousPage = useEventCallback(() => {
+    requestReaderViewportReset()
+    setPageNumber((value) => Math.max(1, value - 1))
+  })
+  const handleTogglePanMode = useEventCallback(() => {
+    setIsPanMode((value) => !value)
+  })
+  const handleZoomIn = useEventCallback(() => {
+    zoomBy(scaleStep)
+  })
+  const handleZoomOut = useEventCallback(() => {
+    zoomBy(-scaleStep)
+  })
+  const handleCaptureSelection = useEventCallback(() => {
+    if (!suppressSelectionRef.current) {
+      captureSelection()
+    }
+  })
+
   return (
     <div className="app-shell">
       <WindowTitlebar
@@ -901,9 +967,9 @@ function App(): JSX.Element {
         documents={documents}
         isCollapsed={isLibraryCollapsed}
         pageNumber={pageNumber}
-        onLoadDocument={(document) => void loadDocument(document)}
-        onOpenPdf={() => void openPdf()}
-        onToggleCollapsed={() => setIsLibraryCollapsed((value) => !value)}
+        onLoadDocument={handleLibraryLoadDocument}
+        onOpenPdf={handleOpenPdf}
+        onToggleCollapsed={handleToggleLibraryCollapsed}
       />
 
       <main className="reader-column">
@@ -912,34 +978,25 @@ function App(): JSX.Element {
           colorPresets={annotationColorPresets}
           hasDocument={Boolean(activeDocument)}
           isOcrRunning={isOcrRunning}
-          isTextIndexing={Boolean(textIndexRun && textIndexRun.documentId === activeDocument?.id)}
+          isTextIndexing={isTextIndexingActive}
           isPanMode={isPanMode}
           pageCount={pageCount}
           pageNumber={pageNumber}
           selectedAnnotationColor={selectedAnnotationColor}
           status={status}
           title={activeDocument?.title ?? '未选择 PDF'}
-          onAnnotationInteractionModeChange={setAnnotationInteractionMode}
-          onColorChange={setSelectedAnnotationColor}
-          onCancelTextIndex={() => void cancelCurrentDocumentTextIndex()}
-          onCancelOcr={cancelOcr}
-          onOcrDocument={() => void runDocumentOcr()}
-          onOcrCurrentPage={() => void runCurrentPageOcr()}
-          onNextPage={() => {
-            requestReaderViewportReset()
-            setPageNumber((value) => Math.min(pageCount, value + 1))
-          }}
-          onPageNumberChange={(nextPageNumber) => {
-            requestReaderViewportReset()
-            setPageNumber(nextPageNumber)
-          }}
-          onPreviousPage={() => {
-            requestReaderViewportReset()
-            setPageNumber((value) => Math.max(1, value - 1))
-          }}
-          onTogglePanMode={() => setIsPanMode((value) => !value)}
-          onZoomIn={() => zoomBy(scaleStep)}
-          onZoomOut={() => zoomBy(-scaleStep)}
+          onAnnotationInteractionModeChange={handleAnnotationInteractionModeChange}
+          onColorChange={handleColorChange}
+          onCancelTextIndex={handleCancelTextIndex}
+          onCancelOcr={handleCancelOcr}
+          onOcrDocument={handleRunDocumentOcr}
+          onOcrCurrentPage={handleRunCurrentPageOcr}
+          onNextPage={handleNextPage}
+          onPageNumberChange={handlePageNumberChange}
+          onPreviousPage={handlePreviousPage}
+          onTogglePanMode={handleTogglePanMode}
+          onZoomIn={handleZoomIn}
+          onZoomOut={handleZoomOut}
         />
 
         <ReaderSurface
@@ -954,11 +1011,7 @@ function App(): JSX.Element {
           readerSurfaceRef={readerSurfaceRef}
           scale={scale}
           temporaryHighlight={currentPageSearchHighlight}
-          onCaptureSelection={() => {
-            if (!suppressSelectionRef.current) {
-              captureSelection()
-            }
-          }}
+          onCaptureSelection={handleCaptureSelection}
           onDocumentLoadError={(message) => {
             setPdfError(message)
             setStatus(`PDF 打开失败：${message}`)

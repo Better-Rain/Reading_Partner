@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import type { RefObject, MouseEvent as ReactMouseEvent, WheelEvent } from 'react'
 import type { Source } from 'react-pdf/dist/shared/types.js'
 import { Document, Page } from 'react-pdf'
@@ -40,7 +40,23 @@ type PdfDocumentLike = {
   getPage: (pageNumber: number) => Promise<unknown>
 }
 
-export function ReaderSurface({
+const areReaderSurfacePropsEqual = (
+  previous: ReaderSurfaceProps,
+  next: ReaderSurfaceProps
+): boolean =>
+  previous.annotations === next.annotations &&
+  previous.file === next.file &&
+  previous.interactionMode === next.interactionMode &&
+  previous.isPanMode === next.isPanMode &&
+  previous.isPanning === next.isPanning &&
+  previous.ocrLayout === next.ocrLayout &&
+  previous.pageNumber === next.pageNumber &&
+  previous.pdfError === next.pdfError &&
+  previous.readerSurfaceRef === next.readerSurfaceRef &&
+  previous.scale === next.scale &&
+  previous.temporaryHighlight === next.temporaryHighlight
+
+function ReaderSurfaceComponent({
   annotations,
   file,
   interactionMode,
@@ -183,3 +199,5 @@ export function ReaderSurface({
     </div>
   )
 }
+
+export const ReaderSurface = memo(ReaderSurfaceComponent, areReaderSurfacePropsEqual)
