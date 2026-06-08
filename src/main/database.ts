@@ -827,16 +827,47 @@ export class ReadingPartnerDatabase {
     }
 
     if (normalizedPageNumber) {
+      const currentPageLimit = Math.max(2, Math.min(limit, Math.ceil(limit * 0.5)))
+      const neighborEdgeLimit = limit >= 14 ? 2 : 1
+      const neighborRadius = limit >= 14 ? 2 : 1
       const currentPageRows = this.query<DocumentChunkRow>(
         `select id, document_id, page_number, chunk_index, text
          from document_chunks
          where document_id = ? and page_number = ?
          order by chunk_index asc
          limit ?`,
-        [documentId, normalizedPageNumber, Math.max(2, Math.ceil(limit * 0.6))]
+        [documentId, normalizedPageNumber, currentPageLimit]
       )
 
       addRows(currentPageRows)
+
+      for (let offset = 1; offset <= neighborRadius; offset += 1) {
+        const previousPage = normalizedPageNumber - offset
+
+        if (previousPage >= 1) {
+          const previousRows = this.query<DocumentChunkRow>(
+            `select id, document_id, page_number, chunk_index, text
+             from document_chunks
+             where document_id = ? and page_number = ?
+             order by chunk_index desc
+             limit ?`,
+            [documentId, previousPage, neighborEdgeLimit]
+          ).reverse()
+
+          addRows(previousRows)
+        }
+
+        const nextRows = this.query<DocumentChunkRow>(
+          `select id, document_id, page_number, chunk_index, text
+           from document_chunks
+           where document_id = ? and page_number = ?
+           order by chunk_index asc
+           limit ?`,
+          [documentId, normalizedPageNumber + offset, neighborEdgeLimit]
+        )
+
+        addRows(nextRows)
+      }
     }
 
     if (terms.length > 0) {

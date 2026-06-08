@@ -60,7 +60,7 @@ const buildMessages = (input: RunAIActionInput): ChatMessage[] => {
       },
       {
         role: 'user',
-        content: `Current reading page: ${input.pageNumber}\n\nQuestion:\n${selectedText}\n\nDocument excerpts:\n${context}`
+        content: `Current reading page: ${input.pageNumber}\n\nQuestion:\n${selectedText}\n\nDocument excerpts:\n${context}\n\nContext note: excerpts may include nearby previous/next page chunks to resolve cross-page paragraphs and multi-page arguments. Treat page ${input.pageNumber} as the default current page when the question is vague.`
       }
     ]
   }

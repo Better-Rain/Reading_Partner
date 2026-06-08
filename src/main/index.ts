@@ -620,7 +620,7 @@ const registerIpc = (): void => {
       input.documentId,
       input.question,
       input.pageNumber,
-      provider.supportsLongContext ? 10 : 6
+      provider.supportsLongContext ? 16 : 10
     )
     const sendEvent = (payload: AIStreamEvent): void => {
       event.sender.send('ai:streamEvent', payload)
@@ -687,7 +687,7 @@ const registerIpc = (): void => {
       input.documentId,
       selectedText ? `${input.message} ${selectedText}` : input.message,
       input.pageNumber,
-      provider.supportsLongContext ? 12 : 5
+      provider.supportsLongContext ? 18 : 10
     )
     const recentMessages = database.getRecentAIChatMessages(
       input.conversationId,
@@ -737,7 +737,7 @@ const registerIpc = (): void => {
     const systemMessage = messages[0]
 
     if (systemMessage) {
-      systemMessage.content = `${systemMessage.content}\n\n${aiAnnotationCapabilityPrompt}`
+      systemMessage.content = `${systemMessage.content}\n\n${aiAnnotationCapabilityPrompt}\n\nThe provided document excerpts may include current-page chunks plus nearby previous/next page chunks. Use nearby pages to resolve cross-page paragraphs and multi-page arguments, but keep the stated current reading page as the default reference point when the user is vague.`
     }
 
     for (const message of messages) {
