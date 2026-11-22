@@ -9,7 +9,7 @@ The project is configured to skip optional native packages because `canvas` can 
 In PowerShell:
 
 ```powershell
-cd "D:\programme\Vscode Projects\Reading_Partner"
+cd "<project-directory>"
 $env:ELECTRON_MIRROR='https://npmmirror.com/mirrors/electron/'
 npm install
 ```
@@ -26,6 +26,24 @@ Build check:
 npm run build
 ```
 
+Harness smoke checks:
+
+```powershell
+npm run probe:local
+npm run probe:cancel
+npm run probe:deepseek
+npm run probe:electron
+```
+
+`probe:local` exercises the local LLM Hub tool loop. `probe:cancel` uses a local
+mock stream to verify cancellation preserves partial output. `probe:deepseek` uses the
+encrypted key already stored by the app and checks the live DeepSeek endpoint.
+`probe:electron` launches an isolated Electron profile, copies the current
+local database when available, and verifies preload, document loading, chat
+completion, and the AI operation action before cleaning up. These probes do
+not belong in CI because the local profile and provider credentials are
+machine-specific.
+
 ## 2. Push to GitHub
 
 The remote is already configured:
@@ -37,8 +55,8 @@ git remote -v
 Expected remote:
 
 ```text
-origin  https://github.com/Better-Rain/Reading_Partner.git (fetch)
-origin  https://github.com/Better-Rain/Reading_Partner.git (push)
+origin  git@github.com:Better-Rain/Reading_Partner.git (fetch)
+origin  git@github.com:Better-Rain/Reading_Partner.git (push)
 ```
 
 Push when the network can reach GitHub:
@@ -53,7 +71,7 @@ If Git opens a browser or Git Credential Manager prompt:
 2. Authorize Git Credential Manager.
 3. Re-run `git push -u origin main` if the first push was interrupted.
 
-If the error is `Failed to connect to github.com port 443`, it is a network issue. Retry after switching network, proxy, or VPN.
+If SSH is unavailable, HTTPS can be used temporarily with `git remote set-url origin https://github.com/Better-Rain/Reading_Partner.git`. If the error is `Failed to connect to github.com port 443`, it is a network issue. Retry after switching network, proxy, or VPN.
 
 ## 3. Configure AI Provider API Keys
 
@@ -83,6 +101,20 @@ Default model in the app:
 ```text
 deepseek-v4-flash
 ```
+
+The current harness has been verified against this account with a normal streamed answer, an annotation tool call, the follow-up answer after the tool result, and a later follow-up question.
+
+### Local LLM Hub
+
+The app seeds a `本地 LLM Hub` provider on first launch:
+
+```text
+Base URL: http://127.0.0.1:18080/v1
+Model: qwen-local
+API Key: not required; the app uses local-only
+```
+
+For `qwen-reason`, change the model field to `qwen-reason`; the app automatically sends `llm_hub_mode: thinking`. Other local models use `direct`. Local tool-call and second-round completion have also been verified.
 
 ### Alibaba Bailian / Qwen
 
@@ -140,13 +172,16 @@ If a provider changes model names, update `defaultModel` in the app's provider c
    - explain
    - summarize
 5. The streamed result is saved as a note attached to the source page and selected text.
+6. In co-reading chat or an explicit document annotation request, the model may call `create_annotations`. The app validates and stores candidate marks, returns the tool result to the model, and then completes the answer. Use the operation card's `保留` or `撤销` action to decide what remains.
+
+Tool failure, unsupported tool schemas, or stopping output do not cancel an otherwise completed answer. Unsupported providers automatically retry once without tools, and the message can be sent again after stopping.
 
 ## 6. Local Data Locations
 
 Electron stores app data in the user data directory. On Windows it is usually:
 
 ```text
-C:\Users\<YourUser>\AppData\Roaming\reading-partner
+%APPDATA%\reading-partner
 ```
 
 Important local files:
@@ -187,3 +222,15 @@ Supported CSV shapes:
 - Header-based CSVs with fields such as `word`, `phonetic`, `definition`, `translation`, `pos`, and `exchange`.
 
 For large StarDict dictionaries, the app registers the dictionary source and performs exact lookups on demand. It does not copy millions of entries into the main app database.
+
+## 8. Cross-Computer Reading Record Migration
+
+Keep PDF files in a dedicated library directory outside the code repository, for example:
+
+```text
+E:\Programs\Reading Partner Library
+```
+
+Use the same directory for future books so the database keeps stable local paths. A reading-record migration should include the PDF and either the source `reading-partner.sqlite` database or an exported `.reading-partner-marks.json` file. The SQLite database also contains vocabulary, document indexes, AI artifacts, and co-reading history; the JSON export contains user annotations only.
+
+API keys are not portable between computers because Electron encrypts them with the source machine's key store. Configure the provider key again on the destination computer after migration.

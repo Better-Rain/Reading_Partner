@@ -228,6 +228,41 @@ button {
   font-weight: 800;
 }
 
+.brand > div:last-child { min-width: 0; }
+.brand-mark { flex-shrink: 0; }
+.reader-account {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  min-height: 30px;
+  margin-top: 5px;
+  padding: 2px 7px 2px 3px;
+  border: 1px solid #cbd8e6;
+  border-radius: 18px;
+  background: #edf3f8;
+  color: #264c6d;
+  font-size: 13px;
+  font-weight: 650;
+  text-decoration: none;
+}
+.reader-account:hover { border-color: #91aac0; background: #e3edf5; }
+.reader-account:focus-visible { outline: 2px solid #30678f; outline-offset: 2px; }
+.reader-monogram {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #315b7c;
+  color: white;
+  font: bold 14px Georgia, serif;
+}
+.reader-account-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.reader-account svg { flex: none; }
+@media (pointer: coarse) { .reader-account { min-height: 44px; padding-inline: 6px 10px; } }
+
 .brand h1,
 .ai-ready h2,
 .settings-intro h2 {
@@ -345,6 +380,7 @@ button {
 }
 
 .reader-column {
+  position: relative;
   grid-area: reader;
   display: flex;
   min-height: 0;
@@ -550,12 +586,15 @@ button:disabled {
   min-height: 0;
   contain: layout style;
   overflow: auto;
+  padding: 0;
+}
+
+.reader-surface, .pin-viewport {
   background:
     linear-gradient(90deg, rgba(26, 44, 66, 0.05) 1px, transparent 1px),
     linear-gradient(rgba(26, 44, 66, 0.05) 1px, transparent 1px),
     #e6eaf0;
   background-size: 28px 28px;
-  padding: 0;
 }
 
 .reader-surface.pan-enabled {
@@ -609,7 +648,8 @@ button:disabled {
 
 .pdf-page-visual {
   position: relative;
-  contain: layout paint style;
+  /* Let margin tabs extend beyond the paper. */
+  contain: layout style;
   transform-origin: top left;
   will-change: transform;
 }
@@ -1732,6 +1772,10 @@ button:disabled {
   margin-bottom: 12px;
 }
 
+.annotate-page-action {
+  margin-bottom: 16px;
+}
+
 .conversation-menu {
   margin-bottom: 12px;
   border: 1px solid #dde3ed;
@@ -1911,6 +1955,18 @@ button:disabled {
 .chat-message strong {
   color: #1f2937;
   font-size: 13px;
+}
+
+.chat-message-status {
+  display: block;
+  margin-top: 3px;
+  color: #7b8798;
+  font-size: 12px;
+}
+
+.chat-message.ai-run-preview {
+  border: 1px dashed #c7d2e2;
+  background: #fbfcfe;
 }
 
 .chat-message-action {
@@ -2408,3 +2464,30 @@ button:disabled {
 .switch input:checked + span::after {
   transform: translateX(18px);
 }
+.mobile-nav { display:none }
+html.cloud-reader .window-titlebar {display:none}
+@media (max-width: 1079px) {
+ body { min-width:0; min-height:0 }
+ .app-shell { height:100dvh; }
+ .mobile-nav { display:flex; flex-shrink:0; gap:8px; padding:6px 12px; background:#edf0f5; }
+ .mobile-nav button { flex:1; min-height:40px; border:0; border-radius:8px; background:white; color:#234e70; }
+ .mobile-nav button[aria-pressed=true] { background:#234e70; color:white; }
+ .app-shell .app-layout { display:flex; min-height:0; min-width:0; }
+ .app-layout > * { flex:1; min-width:0; }
+ .app-shell:not([data-mobile-tab=library]) .library-panel,.app-shell:not([data-mobile-tab=reader]) .reader-column,.app-shell:not([data-mobile-tab=tools]) .inspector-panel { display:none }
+ .app-layout .panel-collapse-button { display:none }
+ .app-layout .library-panel { overflow:auto }
+ .app-layout .reader-toolbar { display:block; min-width:0; padding:6px; }
+ .app-layout .toolbar-controls { display:flex; flex-wrap:nowrap; overflow-x:auto; padding-bottom:4px; }
+ .app-layout .toolbar-controls > * { flex-shrink:0 }
+ .app-layout .reader-surface { padding:4px; min-height:0; }
+ .app-layout .pdf-stage { padding:0; }
+}
+
+.reading-link { color: #206485; text-decoration: underline; text-underline-offset: .16em; overflow-wrap: anywhere; }
+.reading-link:focus-visible, .reading-origin button:focus-visible { outline: 2px solid #286a88; outline-offset: 2px; }
+.reading-origin { position: absolute; z-index: 5; right: 18px; bottom: 12px; display: flex; align-items: center; gap: 6px; border-radius: 8px; background: #fff; box-shadow: 0 1px 6px #273d5833; }
+.reading-origin button { min-height: 36px; color: #206485; }
+.reading-origin span { padding-right: 8px; font-size: 13px; }
+
+.annotation-pagination { display: flex; justify-content: space-between; align-items: center; gap: 4px; font-size: 13px; }

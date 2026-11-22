@@ -25,7 +25,6 @@ type UseAIRunActionsParams = {
   pageCount: number
   pageNumber: number
   readyProvider: AIProviderRecord | null
-  readerName: string
   selectedAnnotationColor: string
   selectionRects: AnnotationRect[]
   selectionText: string | null
@@ -221,7 +220,7 @@ const buildFallbackAnnotationDraft = (
 
 export const useAIRunActions = (params: UseAIRunActionsParams): {
   aiRun: AIRunState | null
-  askDocumentQuestion: (question: string) => Promise<void>
+  askDocumentQuestion: (question: string, annotatePage?: boolean) => Promise<void>
   cancelCurrentAIRun: () => Promise<void>
   defineVocabularyWithAI: (item: VocabularyRecord) => Promise<void>
   resendChatMessage: (message: AIChatMessageRecord, contentOverride?: string) => Promise<void>
@@ -231,6 +230,7 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
   const [aiRun, setAiRun] = useState<AIRunState | null>(null)
   const aiRunRef = useRef<AIRunState | null>(null)
   const contextRef = useRef<AIRunContext>(params)
+  const toolAnnotationsByRequestRef = useRef(new Map<string, AnnotationRecord[]>())
 
   useEffect(() => {
     aiRunRef.current = aiRun
@@ -261,6 +261,15 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
       return
     }
 
+    if (event.type === 'status') {
+      setAiRun((current) =>
+        current && current.requestId === event.requestId
+          ? { ...current, phase: event.phase, statusMessage: event.message }
+          : current
+      )
+      return
+    }
+
     const {
       pageCount,
       pageNumber,
@@ -271,12 +280,31 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
       setStatus,
       setVocabulary
     } = contextRef.current
+    if (event.type === 'annotations') {
+      toolAnnotationsByRequestRef.current.set(event.requestId, [
+        ...(toolAnnotationsByRequestRef.current.get(event.requestId) ?? []), ...event.annotations
+      ])
+      setAnnotations((items) => {
+        const existingIds = new Set(items.map((item) => item.id))
+        return [...items, ...event.annotations.filter((item) => !existingIds.has(item.id))]
+      })
+      registerAIOperation(event.requestId, event.annotations, event.conversationId ?? aiRunRef.current?.conversationId)
+      setStatus(`AI 已生成 ${event.annotations.length} 条候选批注，等待确认`)
+      return
+    }
+
     const currentRun = aiRunRef.current
 
     if (event.type === 'error') {
       setAiRun((current) =>
         current && current.requestId === event.requestId
-          ? { ...current, status: 'error', error: event.message }
+          ? {
+              ...current,
+              status: 'error',
+              error: event.message,
+              output: event.partialOutput ?? current.output,
+              reasoningOutput: event.partialReasoning ?? current.reasoningOutput
+            }
           : current
       )
       if (
@@ -284,10 +312,14 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
         currentRun.conversationId &&
         contextRef.current.activeDocument
       ) {
-        await refreshAIConversationAfterRun(
-          currentRun.conversationId,
-          contextRef.current.activeDocument.id
-        )
+        try {
+          await refreshAIConversationAfterRun(
+            currentRun.conversationId,
+            contextRef.current.activeDocument.id
+          )
+        } catch (refreshError) {
+          setStatus(`AI 调用失败，且对话刷新失败：${refreshError instanceof Error ? refreshError.message : String(refreshError)}`)
+        }
       }
       setStatus(`AI 调用失败：${event.message}`)
       return
@@ -304,10 +336,14 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
         currentRun.conversationId &&
         contextRef.current.activeDocument
       ) {
-        await refreshAIConversationAfterRun(
-          currentRun.conversationId,
-          contextRef.current.activeDocument.id
-        )
+        try {
+          await refreshAIConversationAfterRun(
+            currentRun.conversationId,
+            contextRef.current.activeDocument.id
+          )
+        } catch (refreshError) {
+          setStatus(`AI 已停止，但对话刷新失败：${refreshError instanceof Error ? refreshError.message : String(refreshError)}`)
+        }
       }
       setStatus(currentRun?.source === 'chat' ? '已停止 AI 输出' : '已取消 AI 请求')
       return
@@ -325,75 +361,79 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
     const finalReasoning = extractAIReasoning(displayOutput).reasoning
     const visibleOutputForNote = stripAIReasoningBlock(displayOutput)
 
+    if (currentRun?.source === 'annotate_page') {
+      const count = toolAnnotationsByRequestRef.current.get(event.requestId)?.length ?? 0
+      toolAnnotationsByRequestRef.current.delete(event.requestId)
+      const summary = count ? `本页已写入 ${count} 条 AI 批注` : '本页没有生成通过原文校验的批注'
+      setAiRun((current) => current?.requestId === event.requestId
+        ? { ...current, status: 'done', output: summary } : current)
+      setStatus(summary)
+      return
+    }
     if (currentRun?.source === 'chat' && currentRun.conversationId) {
-      await refreshAIConversationAfterRun(currentRun.conversationId, event.artifact.documentId)
-      let linkedSelectionAnnotation: AnnotationRecord | null = null
+      let refreshError: string | null = null
 
-      if (currentRun.linkedSelection) {
-        linkedSelectionAnnotation = await window.readingPartner.createAnnotation({
-          documentId: event.artifact.documentId,
-          type: 'note',
-          pageNumber: currentRun.linkedSelection.pageNumber,
-          selectedText: currentRun.linkedSelection.text,
-          color: currentRun.linkedSelection.color,
-          note: visibleOutputForNote,
-          rectsJson: currentRun.linkedSelection.rects.length
-            ? JSON.stringify(currentRun.linkedSelection.rects)
-            : null,
-          authorName: currentRun.linkedSelection.authorName
-        })
-        setAnnotations((items) => [...items, linkedSelectionAnnotation as AnnotationRecord])
+      try {
+        await refreshAIConversationAfterRun(currentRun.conversationId, event.artifact.documentId)
+      } catch (error) {
+        refreshError = error instanceof Error ? error.message : String(error)
       }
 
-      const assistedDraftsForCreation = buildSelectedAnnotationDrafts(
-        currentRun,
-        assistedAnnotationDrafts,
-        visibleOutputForNote
-      )
-      const fallbackDraft =
-        assistedDraftsForCreation.length === 0 &&
-        shouldCreateFallbackAnnotation(
-          currentRun,
-          event.artifact.outputMarkdown,
-          visibleOutputForNote
-        )
-          ? buildFallbackAnnotationDraft(
-              event.artifact.pageNumber ?? pageNumber,
-              visibleOutputForNote
-            )
-          : null
-      const createdAnnotations = await createAIAssistedAnnotations(
-        event.artifact.documentId,
-        fallbackDraft ? [fallbackDraft] : assistedDraftsForCreation,
-        event.artifact.model
-      )
+      const toolAnnotations = toolAnnotationsByRequestRef.current.get(event.requestId) ?? []
+      const assistedDraftsForCreation = toolAnnotations.length || !hasExplicitAnnotationIntent(currentRun.inputText)
+        ? []
+        : buildSelectedAnnotationDrafts(currentRun, assistedAnnotationDrafts, visibleOutputForNote)
+      let createdAnnotations: AnnotationRecord[] = []
 
-      registerAIOperation(event.requestId, createdAnnotations, currentRun.conversationId)
+      try {
+        createdAnnotations = await createAIAssistedAnnotations(
+          event.artifact.documentId,
+          assistedDraftsForCreation,
+          event.artifact.model
+        )
+        registerAIOperation(event.requestId, createdAnnotations, currentRun.conversationId)
+      } catch (error) {
+        refreshError = error instanceof Error ? error.message : String(error)
+      }
+
       setAiRun((current) =>
         current && current.requestId === event.requestId
-          ? { ...current, status: 'done', output: visibleOutputForNote, reasoningOutput: finalReasoning }
+          ? {
+              ...current,
+              status: 'done',
+              phase: 'finalizing',
+              statusMessage: refreshError ? '回答已保存，批注同步出现问题' : '回答已完成',
+              output: visibleOutputForNote,
+              reasoningOutput: finalReasoning,
+              error: null
+            }
           : current
       )
+      const totalAnnotations = toolAnnotations.length + createdAnnotations.length
       setStatus(
-        linkedSelectionAnnotation
-          ? createdAnnotations.length > 0
-            ? `共读对话已更新，已将回答保存为选区批注，并创建 ${createdAnnotations.length} 条 AI 辅助批注`
-            : '共读对话已更新，已将回答保存为选区批注'
-          : createdAnnotations.length > 0
-          ? `共读对话已更新，并创建 ${createdAnnotations.length} 条 AI 辅助批注`
-          : '共读对话已更新'
+        refreshError
+          ? `共读回答已保存，但批注同步失败：${refreshError}`
+            : totalAnnotations > 0
+              ? `共读对话已更新，并生成 ${totalAnnotations} 条候选批注`
+              : '共读对话已更新'
       )
+      toolAnnotationsByRequestRef.current.delete(event.requestId)
       return
     }
 
     let createdAnnotationCount = 0
 
     if (currentRun?.source === 'vocabulary' && currentRun.vocabularyId) {
-      const updated = await window.readingPartner.updateVocabularyDefinition({
-        id: currentRun.vocabularyId,
-        definition: visibleOutputForNote
-      })
-      setVocabulary((items) => items.map((item) => (item.id === updated.id ? updated : item)))
+      let sideEffectError: string | null = null
+      try {
+        const updated = await window.readingPartner.updateVocabularyDefinition({
+          id: currentRun.vocabularyId,
+          definition: visibleOutputForNote
+        })
+        setVocabulary((items) => items.map((item) => (item.id === updated.id ? updated : item)))
+      } catch (error) {
+        sideEffectError = error instanceof Error ? error.message : String(error)
+      }
       const fallbackDraft =
         assistedAnnotationDrafts.length === 0 &&
         shouldCreateFallbackAnnotation(
@@ -406,28 +446,52 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
               visibleOutputForNote
             )
           : null
-      const createdAnnotations = await createAIAssistedAnnotations(
-        event.artifact.documentId,
-        fallbackDraft ? [fallbackDraft] : assistedAnnotationDrafts,
-        event.artifact.model
-      )
+      let createdAnnotations: AnnotationRecord[] = []
+      try {
+        createdAnnotations = await createAIAssistedAnnotations(
+          event.artifact.documentId,
+          fallbackDraft ? [fallbackDraft] : assistedAnnotationDrafts,
+          event.artifact.model
+        )
+      } catch (error) {
+        sideEffectError = error instanceof Error ? error.message : String(error)
+      }
       createdAnnotationCount = createdAnnotations.length
       registerAIOperation(event.requestId, createdAnnotations)
+      setAiRun((current) =>
+        current && current.requestId === event.requestId
+          ? { ...current, status: 'done', phase: 'finalizing', output: visibleOutputForNote, reasoningOutput: finalReasoning, error: null }
+          : current
+      )
+      setStatus(sideEffectError ? `AI 回答已完成，但词汇同步失败：${sideEffectError}` : 'AI 释义已写入词汇本')
+      return
     } else {
       const createdAnnotations: AnnotationRecord[] = []
       const isSelectionRun = currentRun?.source === 'selection'
       const selectionContext = isSelectionRun ? currentRun.selectionContext : undefined
-      const note = await window.readingPartner.createAnnotation({
-        documentId: event.artifact.documentId,
-        type: 'note',
-        pageNumber: selectionContext?.pageNumber ?? event.artifact.pageNumber ?? 1,
-        selectedText: selectionContext?.text ?? event.artifact.inputText,
-        color: aiDefaultAnnotationColor,
-        note: `AI ${promptLabels[event.artifact.promptType]}\n模型：${event.artifact.model}\n\n${visibleOutputForNote}`,
-        rectsJson: selectionContext?.rects.length ? JSON.stringify(selectionContext.rects) : null,
-        authorName: 'AI'
-      })
-      createdAnnotations.push(note)
+      let primaryAnnotation: AnnotationRecord | null = null
+      try {
+        const note = await window.readingPartner.createAnnotation({
+          documentId: event.artifact.documentId,
+          type: 'note',
+          pageNumber: selectionContext?.pageNumber ?? event.artifact.pageNumber ?? 1,
+          selectedText: selectionContext?.text ?? event.artifact.inputText,
+          color: aiDefaultAnnotationColor,
+          note: `AI ${promptLabels[event.artifact.promptType]}\n模型：${event.artifact.model}\n\n${visibleOutputForNote}`,
+          rectsJson: selectionContext?.rects.length ? JSON.stringify(selectionContext.rects) : null,
+          authorName: 'AI'
+        })
+        createdAnnotations.push(note)
+        primaryAnnotation = note
+      } catch (error) {
+        setAiRun((current) =>
+          current && current.requestId === event.requestId
+            ? { ...current, status: 'done', output: visibleOutputForNote, reasoningOutput: finalReasoning, error: null }
+            : current
+        )
+        setStatus(`AI 回答已完成，但笔记保存失败：${error instanceof Error ? error.message : String(error)}`)
+        return
+      }
 
       const fallbackDraft =
         assistedAnnotationDrafts.length === 0 &&
@@ -455,7 +519,9 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
         ))
       )
 
-      setAnnotations((items) => [...items, note])
+      if (primaryAnnotation) {
+        setAnnotations((items) => [...items, primaryAnnotation as AnnotationRecord])
+      }
       createdAnnotationCount = createdAnnotations.length
       registerAIOperation(event.requestId, createdAnnotations)
     }
@@ -476,7 +542,15 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
 
   useEffect(() => {
     return window.readingPartner.onAIStreamEvent((event) => {
-      void handleAIStreamEvent(event)
+      void handleAIStreamEvent(event).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error)
+        setAiRun((current) =>
+          current && current.requestId === event.requestId
+            ? { ...current, status: 'error', error: message, statusMessage: 'AI 结果处理失败' }
+            : current
+        )
+        contextRef.current.setStatus(`AI 结果处理失败：${message}`)
+      })
     })
   }, [])
 
@@ -554,7 +628,7 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
     setStatus(currentRun.source === 'chat' ? '已停止 AI 输出' : '已取消 AI 请求')
   }
 
-  const askDocumentQuestion = async (question: string): Promise<void> => {
+  const askDocumentQuestion = async (question: string, annotatePage = false): Promise<void> => {
     const { activeDocument, pageNumber, readyProvider, setActiveTab, setStatus } = contextRef.current
 
     if (!activeDocument) {
@@ -584,7 +658,7 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
       reasoningOutput: '',
       status: 'running',
       error: null,
-      source: 'document_qa'
+      source: annotatePage ? 'annotate_page' : 'document_qa'
     })
     setActiveTab('ai')
     setStatus(`正在使用 ${readyProvider.label} 回答文档问题`)
@@ -594,6 +668,7 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
       providerId: readyProvider.id,
       documentId: activeDocument.id,
       pageNumber,
+      annotatePage,
       question: trimmed
     })
   }
@@ -606,7 +681,6 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
       chatTitleDraft,
       createAIConversation,
       pageNumber,
-      readerName,
       readyProvider,
       selectionRects,
       selectionText,
@@ -646,15 +720,6 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
     const selectedText = selectionText
     const explicitSelectedAnnotationRequest =
       Boolean(selectedText?.trim()) && hasExplicitAnnotationIntent(trimmed)
-    const linkedSelection = selectedText?.trim() && !explicitSelectedAnnotationRequest
-      ? {
-          authorName: readerName.trim() || 'Reader',
-          color: contextRef.current.selectedAnnotationColor,
-          pageNumber,
-          rects: selectionRects,
-          text: selectedText ?? ''
-        }
-      : undefined
     const selectedAnnotationRequest = explicitSelectedAnnotationRequest
       ? {
           color: contextRef.current.selectedAnnotationColor,
@@ -693,7 +758,6 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
       error: null,
       source: 'chat',
       conversationId: conversation.id,
-      linkedSelection,
       selectedAnnotationRequest
     })
     setActiveTab('ai')
@@ -707,7 +771,9 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
       documentId: activeDocument.id,
       pageNumber,
       message: trimmed,
-      selectedText
+      selectedText,
+      selectionRects,
+      selectionColor: contextRef.current.selectedAnnotationColor
     })
   }
 
@@ -798,7 +864,8 @@ export const useAIRunActions = (params: UseAIRunActionsParams): {
       documentId: activeDocument.id,
       pageNumber: replayPageNumber,
       message: trimmed,
-      selectedText
+      selectedText,
+      selectionColor: contextRef.current.selectedAnnotationColor
     })
   }
 

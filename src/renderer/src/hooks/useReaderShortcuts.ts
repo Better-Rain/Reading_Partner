@@ -9,6 +9,7 @@ const isEditableTarget = (target: EventTarget | null): boolean => {
 }
 
 type ReaderShortcutsOptions = {
+  enabled: boolean
   hasDocument: boolean
   hasSelection: boolean
   onCreateHighlight: () => void
@@ -18,6 +19,7 @@ type ReaderShortcutsOptions = {
 }
 
 export const useReaderShortcuts = ({
+  enabled,
   hasDocument,
   hasSelection,
   onCreateHighlight,
@@ -26,6 +28,7 @@ export const useReaderShortcuts = ({
   onUndoAnnotation
 }: ReaderShortcutsOptions): void => {
   useEffect(() => {
+    if (!enabled) return
     const handleShortcut = (event: KeyboardEvent): void => {
       const key = event.key.toLowerCase()
 
@@ -71,6 +74,7 @@ export const useReaderShortcuts = ({
       window.removeEventListener('keydown', handleShortcut)
     }
   }, [
+    enabled,
     hasDocument,
     hasSelection,
     onCreateHighlight,

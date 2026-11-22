@@ -15,7 +15,7 @@ Imported PDF metadata.
 | file_path | text unique | Absolute path on local machine. |
 | file_size | integer | Bytes. |
 | page_count | integer nullable | Filled after parsing. |
-| created_at | text | ISO timestamp. |
+| last_page_number | integer | Last reading position, 1-based. |
 | last_opened_at | text | ISO timestamp. |
 
 ### annotations
@@ -31,7 +31,8 @@ Highlights, notes, and bookmarks.
 | selected_text | text nullable | Source text for selection-based annotations. |
 | color | text nullable | Hex color. |
 | note | text nullable | User note. |
-| rects_json | text nullable | Future selection rectangles. |
+| rects_json | text nullable | Normalized selection rectangles used by the PDF annotation overlay and OCR text anchoring. |
+| vocabulary_id | text nullable | Linked vocabulary entry when the mark was created from the vocabulary workflow. |
 | created_at | text | ISO timestamp. |
 | updated_at | text | ISO timestamp. |
 
@@ -46,6 +47,7 @@ Extracted PDF page text cache. The main process rebuilds these rows from PDF.js 
 | text | text | Full extracted text for the page. Empty for pages with no extractable text. |
 | char_count | integer | Character count for quick diagnostics. |
 | indexed_at | text | ISO timestamp. |
+| ocr_layout_json | text nullable | Persisted OCR line geometry for scanned pages. |
 
 Primary key: `(document_id, page_number)`.
 
@@ -67,7 +69,7 @@ Current behavior:
 
 - The right-side Search tab queries these chunks locally with app-level keyword matching.
 - Search results return the source page, chunk id, snippet, and a simple occurrence score.
-- First-version document Q&A retrieves a small set of matching chunks from this table, falls back to the current page area when needed, and asks the configured AI provider to cite page numbers.
+- Document Q&A retrieves matching chunks with current-page and nearby-page context, falls back to the current page area when needed, and asks the configured AI provider to cite page numbers.
 
 ### ai_providers
 
@@ -131,6 +133,8 @@ Messages inside a co-reading conversation.
 | artifact_id | text nullable | FK to saved AI artifact when applicable. |
 | created_at | text | ISO timestamp. |
 
+Tool-call transcripts are deliberately not persisted as separate chat rows. The main process executes `create_annotations`, persists the resulting annotations immediately, and stores only the assistant's final answer and artifact. This keeps chat history readable while the annotation operation card tracks the reversible side effect in renderer state.
+
 ### vocabulary
 
 English reading support.
@@ -143,6 +147,7 @@ English reading support.
 | definition | text | Local or AI definition. |
 | source_sentence | text nullable | Original sentence. |
 | page_number | integer nullable | Source page. |
+| annotation_id | text nullable | Optional source annotation link. |
 | created_at | text | ISO timestamp. |
 
 Current behavior:

@@ -27,7 +27,7 @@ export const useAIConversations = ({
   setChatDraft: (value: string) => void
   setChatTitleDraft: (value: string) => void
   setIsChatDrawerOpen: (value: boolean) => void
-  refreshAIConversations: (documentId: string) => Promise<void>
+  refreshAIConversations: (documentId: string) => Promise<AIConversationRecord[]>
   selectAIConversation: (conversationId: string) => Promise<void>
   startNewAIConversation: () => void
   createAIConversation: (title?: string) => Promise<AIConversationRecord | null>
@@ -47,15 +47,13 @@ export const useAIConversations = ({
     [activeConversationId, aiConversations]
   )
 
-  const refreshAIConversations = async (documentId: string): Promise<void> => {
+  const refreshAIConversations = async (documentId: string): Promise<AIConversationRecord[]> => {
     const conversations = await window.readingPartner.listAIConversations(documentId)
     setAiConversations(conversations)
 
-    const nextActive = conversations[0] ?? null
-    setActiveConversationId(nextActive?.id ?? null)
-    setChatMessages(
-      nextActive ? await window.readingPartner.listAIChatMessages(nextActive.id) : []
-    )
+    setActiveConversationId(null)
+    setChatMessages([])
+    return conversations
   }
 
   const selectAIConversation = async (conversationId: string): Promise<void> => {

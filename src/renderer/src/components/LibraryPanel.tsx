@@ -1,4 +1,4 @@
-import { Bookmark, FileText, PanelLeftClose, PanelLeftOpen, Upload } from 'lucide-react'
+import { Bookmark, ChevronRight, FileText, PanelLeftClose, PanelLeftOpen, Upload } from 'lucide-react'
 import type { DocumentRecord } from '../../../shared/types'
 import { formatTime } from './NotesPanel'
 
@@ -9,6 +9,7 @@ type LibraryPanelProps = {
   isCollapsed: boolean
   pageNumber: number
   onLoadDocument: (document: DocumentRecord) => void
+  onOverview: () => void
   onOpenPdf: () => void
   onToggleCollapsed: () => void
 }
@@ -28,9 +29,11 @@ export function LibraryPanel({
   isCollapsed,
   pageNumber,
   onLoadDocument,
+  onOverview,
   onOpenPdf,
   onToggleCollapsed
 }: LibraryPanelProps): JSX.Element {
+  const account = document.querySelector<HTMLMetaElement>('meta[name="rp-user"]')?.content
   return (
     <aside className={isCollapsed ? 'library-panel is-collapsed' : 'library-panel'}>
       <button
@@ -46,13 +49,20 @@ export function LibraryPanel({
         <div className="brand-mark">RP</div>
         <div>
           <h1>Reading Partner</h1>
-          <p>AI assisted PDF workspace</p>
+          {account ? (
+            <a className="reader-account" href="/account" aria-label={`${account} 的个人主页`} title={`${account} 的个人主页`}>
+              <span className="reader-monogram" aria-hidden="true">{Array.from(account)[0]?.toUpperCase()}</span>
+              <span className="reader-account-name">{account}</span>
+              <ChevronRight size={14} aria-hidden="true" />
+            </a>
+          ) : <p>AI assisted PDF workspace</p>}
         </div>
       </div>
 
+      <button className="shelf-launch" onClick={onOverview}>书库总览</button>
       <button className="primary-action" onClick={onOpenPdf}>
         <Upload size={18} />
-        打开 PDF
+        {account ? '上传 PDF 到共享书库' : '打开 PDF'}
       </button>
 
       <section className="panel-section">

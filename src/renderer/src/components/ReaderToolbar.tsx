@@ -15,8 +15,10 @@ import type { AnnotationColorPreset } from './NotesPanel'
 import type { AnnotationInteractionMode } from './AnnotationOverlay'
 
 type ReaderToolbarProps = {
+  boardToolsRef: ((node: HTMLDivElement | null) => void) | null
   annotationInteractionMode: AnnotationInteractionMode
   colorPresets: AnnotationColorPreset[]
+  canZoom: boolean
   hasDocument: boolean
   isOcrRunning: boolean
   isPanMode: boolean
@@ -41,8 +43,10 @@ type ReaderToolbarProps = {
 }
 
 export function ReaderToolbar({
+  boardToolsRef,
   annotationInteractionMode,
   colorPresets,
+  canZoom,
   hasDocument,
   isOcrRunning,
   isPanMode,
@@ -110,7 +114,7 @@ export function ReaderToolbar({
           </span>
         </span>
       </div>
-      <div className="toolbar-controls">
+      {boardToolsRef ? <div ref={boardToolsRef} className="toolbar-controls board-top-tools" aria-label="线索板工具"/> : <div className="toolbar-controls">
         <div className="annotation-mode-toggle" aria-label="批注交互模式">
           <button
             className={annotationInteractionMode === 'inspect' ? 'active' : ''}
@@ -175,10 +179,10 @@ export function ReaderToolbar({
         >
           <ChevronRight size={18} />
         </button>
-        <button className="icon-button" disabled={!hasDocument} title="缩小" onClick={onZoomOut}>
+        <button className="icon-button" disabled={!canZoom} title="缩小" onClick={onZoomOut}>
           <Minus size={18} />
         </button>
-        <button className="icon-button" disabled={!hasDocument} title="放大" onClick={onZoomIn}>
+        <button className="icon-button" disabled={!canZoom} title="放大" onClick={onZoomIn}>
           <Plus size={18} />
         </button>
         <button
@@ -215,7 +219,7 @@ export function ReaderToolbar({
             <X size={18} />
           </button>
         )}
-      </div>
+      </div>}
     </header>
   )
 }

@@ -106,10 +106,16 @@ export type DocumentQuestionContext = {
   score: number
 }
 
+export const annotationScopes = {
+  vocabulary: '单词', paragraph: '段落', margin: '页边', summary: '小结', question: '疑问', note: '批注'
+} as const
+export type AnnotationScope = keyof typeof annotationScopes
+
 export type AnnotationRecord = {
   id: string
   documentId: string
   type: AnnotationType
+  scope?: AnnotationScope | null
   pageNumber: number
   selectedText: string | null
   color: string | null
@@ -124,6 +130,7 @@ export type AnnotationRecord = {
 export type CreateAnnotationInput = {
   documentId: string
   type: AnnotationType
+  scope?: AnnotationScope | null
   pageNumber: number
   selectedText?: string | null
   color?: string | null
@@ -320,6 +327,7 @@ export type AskDocumentQuestionInput = {
   documentId: string
   pageNumber: number
   question: string
+  annotatePage?: boolean
 }
 
 export type RunAIChatInput = {
@@ -330,7 +338,16 @@ export type RunAIChatInput = {
   pageNumber: number
   message: string
   selectedText?: string | null
+  selectionRects?: Array<{
+    left: number
+    top: number
+    width: number
+    height: number
+  }>
+  selectionColor?: string | null
 }
+
+export type AIStreamPhase = 'connecting' | 'waiting' | 'thinking' | 'tool' | 'finalizing'
 
 export type AIStreamEvent =
   | {
@@ -347,6 +364,19 @@ export type AIStreamEvent =
     }
   | {
       requestId: string
+      type: 'status'
+      phase: AIStreamPhase
+      message: string
+    }
+  | {
+      requestId: string
+      type: 'annotations'
+      annotations: AnnotationRecord[]
+      source: 'tool' | 'directive'
+      conversationId?: string
+    }
+  | {
+      requestId: string
       type: 'done'
       artifact: AIArtifactRecord
     }
@@ -354,6 +384,8 @@ export type AIStreamEvent =
       requestId: string
       type: 'error'
       message: string
+      partialOutput?: string
+      partialReasoning?: string
     }
   | {
       requestId: string
@@ -361,7 +393,26 @@ export type AIStreamEvent =
       message?: string
     }
 
+type TagAppearance = { color?: string; position?: { x: number; y: number } }
+export type TagPlacement = TagAppearance & { selectedBookIds?: string[] }
+export type ShelfTag = TagAppearance & { id: string; text: string; author: 'user' | 'ai'; books: string[]; relatedTagIds?: string[] }
+export type BookConnection = { id: string; from: string; to: string; summary: string; author: 'user' | 'ai' }
+export type ShelfGroup = { connections?: BookConnection[]; id: string; name: string; books: string[]; tags?: ShelfTag[] }
+export type LibraryBoardState = { connections?: BookConnection[]; tags?: ShelfTag[]; revision: number; order: string[]; groups: ShelfGroup[]; positions?: Record<string, { x: number; y: number }> }
+export type ShelfAnswer = { savedConnectionIds?: string[]; savedTagId?: string; text: string; sources: { documentId: string; title: string; pages: number[] }[] }
+
+export type BoardConversation = Pick<AIConversationRecord, 'id' | 'title' | 'updatedAt'>
+export type BoardAskOptions = { conversationId: string | null; requestId: string; title?: string }
+export type BoardTurn = { id: number; question: string; result: ShelfAnswer }
+
 export type ReadingPartnerApi = {
+  listBoardConversations: (groupId: string | null) => Promise<BoardConversation[]>
+  renameBoardConversation: (groupId: string | null, id: string, title: string) => Promise<void>
+  onBoardStreamEvent: (callback: (event: AIStreamEvent) => void) => () => void
+  getBoardHistory: (groupId: string | null, before?: number, conversationId?: string) => Promise<BoardTurn[]>
+  getBoard: () => Promise<LibraryBoardState>
+  saveBoard: (state: LibraryBoardState) => Promise<LibraryBoardState>
+  askBoard: (groupId: string | null, providerId: string, question: string, mode?: 'tag' | 'connect', placement?: TagPlacement, options?: BoardAskOptions) => Promise<ShelfAnswer>
   minimizeWindow: () => Promise<void>
   toggleMaximizeWindow: () => Promise<boolean>
   closeWindow: () => Promise<void>

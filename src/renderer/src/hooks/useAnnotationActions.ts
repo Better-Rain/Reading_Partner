@@ -12,7 +12,7 @@ type UseAnnotationActionsParams = {
   selectionText: string | null
   selectionRects: AnnotationRect[]
   pushAnnotationUndo: (action: AnnotationUndoAction) => void
-  refreshAnnotations: (documentId: string) => Promise<void>
+  refreshAnnotations: (documentId: string) => Promise<AnnotationRecord[]>
   resetAnnotationUndoStack: () => void
   setAnnotations: Dispatch<SetStateAction<AnnotationRecord[]>>
   setDraftNote: Dispatch<SetStateAction<string>>

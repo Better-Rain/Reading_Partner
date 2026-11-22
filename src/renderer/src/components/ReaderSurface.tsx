@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import type { RefObject, MouseEvent as ReactMouseEvent, WheelEvent } from 'react'
 import type { Source } from 'react-pdf/dist/shared/types.js'
 import { Document, Page } from 'react-pdf'
@@ -9,9 +9,12 @@ import {
   AnnotationOverlay,
   TemporarySearchHighlight
 } from './AnnotationOverlay'
+import { exactQuoteRects } from '../pdfSearchHighlight'
 import { OcrTextLayer } from './OcrTextLayer'
 
 type ReaderSurfaceProps = {
+  annotationFocus: AnnotationRecord | null
+  onDismissFocus: () => void
   annotations: AnnotationRecord[]
   file: Source | null
   interactionMode: AnnotationInteractionMode
@@ -44,6 +47,7 @@ const areReaderSurfacePropsEqual = (
   previous: ReaderSurfaceProps,
   next: ReaderSurfaceProps
 ): boolean =>
+  previous.annotationFocus === next.annotationFocus &&
   previous.annotations === next.annotations &&
   previous.file === next.file &&
   previous.interactionMode === next.interactionMode &&
@@ -57,6 +61,8 @@ const areReaderSurfacePropsEqual = (
   previous.temporaryHighlight === next.temporaryHighlight
 
 function ReaderSurfaceComponent({
+  annotationFocus,
+  onDismissFocus,
   annotations,
   file,
   interactionMode,
@@ -83,6 +89,25 @@ function ReaderSurfaceComponent({
   const [pdfDocument, setPdfDocument] = useState<PdfDocumentLike | null>(null)
   const pageCacheRef = useRef(new Set<string>())
   const visualScale = scale / renderScale
+  const [textLayerVersion, setTextLayerVersion] = useState(0)
+  const onTextLayerReady = useCallback(() => setTextLayerVersion((version) => version + 1), [])
+  const [resolvedAnnotations, setResolvedAnnotations] = useState(annotations)
+
+  useEffect(() => {
+    const page = readerSurfaceRef.current?.querySelector<HTMLElement>(`.react-pdf__Page[data-page-number="${pageNumber}"]`)
+    const layer = page?.querySelector<HTMLElement>('.react-pdf__Page__textContent')
+    if (!page || !layer || !annotations.some(mark => mark.authorName === 'AI' && !mark.rectsJson && mark.selectedText)) {
+      setResolvedAnnotations(annotations)
+      return
+    }
+    const locate = exactQuoteRects(layer, page, scale)
+    setResolvedAnnotations(annotations.map((mark) => {
+      if (mark.authorName !== 'AI' || mark.rectsJson || !mark.selectedText) return mark
+      const rects = locate(mark.selectedText)
+      return rects.length ? { ...mark, rectsJson: JSON.stringify(rects) } : mark
+    }))
+  }, [annotations, file, pageNumber, readerSurfaceRef, renderScale, scale, textLayerVersion])
+
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -171,12 +196,16 @@ function ReaderSurfaceComponent({
                   renderAnnotationLayer
                   renderTextLayer
                   scale={renderScale}
+                  onRenderTextLayerSuccess={onTextLayerReady}
                   onLoadError={(error) => onPageLoadError(error.message)}
                   onRenderSuccess={onPageRenderSuccess}
                 />
                 <OcrTextLayer layout={ocrLayout} scale={renderScale} />
                 <AnnotationOverlay
-                  annotations={annotations}
+                  key={pageNumber}
+                  focus={annotationFocus}
+                  onDismissFocus={onDismissFocus}
+                  annotations={resolvedAnnotations}
                   interactionMode={interactionMode}
                   scale={renderScale}
                   temporaryHighlight={temporaryHighlight}

@@ -17,6 +17,17 @@ import {
 } from '../shared/types'
 
 const api: ReadingPartnerApi = {
+  listBoardConversations: groupId => ipcRenderer.invoke('board:conversations', groupId),
+  renameBoardConversation: (groupId, id, title) => ipcRenderer.invoke('board:renameConversation', groupId, id, title),
+  onBoardStreamEvent: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: AIStreamEvent) => callback(payload)
+    ipcRenderer.on('board:streamEvent', listener)
+    return () => { ipcRenderer.removeListener('board:streamEvent', listener) }
+  },
+  getBoardHistory: (groupId, before, id) => ipcRenderer.invoke('board:history', groupId, before, id),
+  getBoard: () => ipcRenderer.invoke('board:get'),
+  saveBoard: state => ipcRenderer.invoke('board:save', state),
+  askBoard: (groupId, providerId, question, mode, placement, options) => ipcRenderer.invoke('board:ask', groupId, providerId, question, mode, placement, options),
   minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
   toggleMaximizeWindow: () => ipcRenderer.invoke('window:toggleMaximize'),
   closeWindow: () => ipcRenderer.invoke('window:close'),

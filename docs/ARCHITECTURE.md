@@ -4,7 +4,7 @@
 
 Reading Partner is a local-first desktop app for reading large PDF literature with AI assistance. The app should feel like a real reading desk, not a chat wrapper: every highlight, note, translation, summary, and AI explanation should remain attached to the source document, page, and selected text.
 
-The first product milestone is a reliable PDF reading and annotation MVP. RAG, OCR, concept maps, and exports come after the reading surface and data model are stable.
+The first product milestone is a reliable PDF reading and annotation MVP. The current implementation also includes local text indexing, document retrieval, and OCR; concept maps and richer export workflows remain future work.
 
 ## Stack
 
@@ -87,8 +87,8 @@ PDF text extraction is owned by the main process. After a PDF loads successfully
 Current behavior:
 
 - Indexing is cached per document and skipped when all pages have already been processed.
-- Scanned pages are still marked as indexed with empty page text, so the app does not repeatedly retry OCR-level work.
-- Chunks retain source page numbers, which is the minimum citation anchor for the upcoming document search and RAG flow.
+- Scanned pages can be recognized locally on the current page or across the whole document. OCR text is written back into `document_pages` and `document_chunks`, and OCR line geometry is stored for the transparent selection layer.
+- Chunks retain source page numbers, which is the citation anchor for document search and RAG.
 
 ## AI Design
 
@@ -105,9 +105,14 @@ Core rules:
 Current implementation:
 
 - Renderer sends selected text, prompt type, document id, and page number through IPC.
-- Main process retrieves the encrypted provider key, calls the OpenAI-compatible `/chat/completions` endpoint with `stream: true`, and emits stream events back to the renderer.
+- Main process retrieves the encrypted provider key, calls the OpenAI-compatible `/chat/completions` endpoint with `stream: true`, and emits typed stream events back to the renderer. The adapter accepts UTF-8 SSE and JSON responses, `content`, `reasoning`/`reasoning_content`, and streamed `tool_calls`.
 - On completion, the main process stores an `ai_artifacts` row.
 - The renderer also creates a visible note annotation from the returned AI artifact.
+- Document Q&A and co-reading chats retrieve current-page context plus nearby page chunks, with larger context/history windows for providers that support long context.
+- Co-reading and explicit document annotation requests expose a `create_annotations` OpenAI-compatible function. The main process validates page bounds, note length, colors, duplicate items, and selection anchors before writing candidate annotations. It emits a separate `annotations` event, sends the tool result back to the model, and only then saves the final answer. Candidates remain reversible through the renderer's keep/revert operation card.
+- Providers that reject tool schemas automatically retry once without tools. A legacy `RP_ANNOTATIONS` HTML comment remains a fallback for older models, and is stripped before visible rendering.
+- Each round has a 300-second request timeout and a 120-second read-idle timeout. Cancellation aborts the underlying fetch and reader; errors retain partial output and reasoning so the conversation can be recovered or resent.
+- The bundled local Hub is recognized at `http://127.0.0.1:18080/v1` and uses `local-only` authentication plus `llm_hub_mode: direct` (or `thinking` for `qwen-reason`).
 
 ## Vocabulary Design
 

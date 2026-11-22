@@ -1,3 +1,4 @@
+import type { ReadingLink } from '../../shared/readingLinks'
 import type {
   AIChatMessageRecord,
   AIConversationRecord,
@@ -15,18 +16,13 @@ export type AIRunState = {
   model: string
   output: string
   reasoningOutput: string
+  phase?: 'connecting' | 'waiting' | 'thinking' | 'tool' | 'finalizing'
+  statusMessage?: string
   status: 'idle' | 'running' | 'done' | 'error' | 'cancelled'
   error: string | null
-  source: 'selection' | 'vocabulary' | 'document_qa' | 'chat'
+  source: 'selection' | 'vocabulary' | 'document_qa' | 'annotate_page' | 'chat'
   conversationId?: string
   selectionContext?: {
-    pageNumber: number
-    rects: AnnotationRect[]
-    text: string
-  }
-  linkedSelection?: {
-    authorName: string
-    color: string
     pageNumber: number
     rects: AnnotationRect[]
     text: string
@@ -50,6 +46,7 @@ export type AIOperationRecord = {
 }
 
 export type AiPanelProps = {
+  onReadingLink: (target: ReadingLink, messageId: string) => void
   activeConversationId: string | null
   aiRun: AIRunState | null
   aiOperations: AIOperationRecord[]
@@ -62,7 +59,7 @@ export type AiPanelProps = {
   question: string
   readyProvider: AIProviderRecord | null
   selection: string | null
-  onAskDocument: (question: string) => void
+  onAskDocument: (question: string, annotatePage?: boolean) => void
   onCloseConversation: () => void
   onCancelRun: () => void
   onCreateConversation: () => void

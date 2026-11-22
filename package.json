@@ -10,6 +10,10 @@
     "build": "npm run typecheck && electron-vite build",
     "icons": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate-icons.ps1",
     "apply-icon": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/apply-icon.ps1",
+    "probe:local": "npx --yes tsx scripts/ai-harness-loop-probe.ts",
+    "probe:cancel": "npx --yes tsx scripts/ai-harness-cancel-probe.ts",
+    "probe:deepseek": "electron scripts/deepseek-harness-probe.cjs",
+    "probe:electron": "node scripts/electron-harness-launch.cjs",
     "dist": "npm run build && electron-builder --win portable && npm run apply-icon",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
@@ -27,7 +31,9 @@
     },
     "icon": "assets/icon.ico",
     "files": [
-      "out/**/*",
+      "out/main/**/*",
+      "out/preload/**/*",
+      "out/renderer/**/*",
       "package.json"
     ],
     "win": {

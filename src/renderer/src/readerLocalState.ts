@@ -1,6 +1,11 @@
+export const readerNameKey = (): string => {
+  const user = document.querySelector<HTMLMetaElement>('meta[name="rp-user"]')?.content
+  return user ? `reading-partner.reader-name.${user}` : 'reading-partner.reader-name'
+}
+
 export const getStoredReaderName = (): string => {
-  const value = window.localStorage.getItem('reading-partner.reader-name')?.trim()
-  return value || '本机读者'
+  const value = window.localStorage.getItem(readerNameKey())?.trim()
+  return value || document.querySelector<HTMLMetaElement>('meta[name="rp-user"]')?.content || '本机读者'
 }
 
 export const toPdfBlobUrl = (data: ArrayBuffer | Uint8Array): string => {

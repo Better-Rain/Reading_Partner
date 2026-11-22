@@ -5,6 +5,12 @@ import { randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { dirname } from 'node:path'
 import {
+  LibraryBoardState,
+  BoardTurn,
+  BoardConversation,
+  ShelfAnswer,
+  ShelfTag,
+  BookConnection,
   AIProviderRecord,
   AIArtifactRecord,
   AIChatMessageRecord,
@@ -55,6 +61,7 @@ type AnnotationRow = {
   color: string | null
   note: string | null
   rects_json: string | null
+  scope: AnnotationRecord['scope']
   vocabulary_id: string | null
   author_name: string
   created_at: string
@@ -249,6 +256,7 @@ const toAnnotation = (row: AnnotationRow): AnnotationRecord => ({
   color: row.color,
   note: row.note,
   rectsJson: row.rects_json,
+  scope: row.scope ?? null,
   vocabularyId: row.vocabulary_id,
   authorName: row.author_name || 'Reader',
   createdAt: row.created_at,
@@ -439,9 +447,206 @@ export class ReadingPartnerDatabase {
     return store
   }
 
+  getBoard(): LibraryBoardState {
+    const row = this.get<{ revision: number; contents: string }>('select revision, contents from library_board where id=1')
+    return row ? { ...JSON.parse(row.contents), revision: row.revision } : { revision: 0, order: [], groups: [] }
+  }
+
+  saveBoard(input: LibraryBoardState): LibraryBoardState {
+    const previous = this.getBoard()
+    if (input.revision !== previous.revision) throw new Error('另一台设备已调整书库，请按最新布局重试。')
+    const ids = new Set(this.listDocuments().map(doc => doc.id))
+    const bookList = (values: string[]): string[] => {
+      if (!Array.isArray(values) || values.length > ids.size || values.some(id => !ids.has(id))) throw new Error('书目列表无效')
+      return [...new Set(values)]
+    }
+    if (!Array.isArray(input.groups) || input.groups.length > 200) throw new Error('最多支持 200 个分组')
+    function normalizeTags(tags: ShelfTag[], previousTags: ShelfTag[], books: string[]) {
+      if (!Array.isArray(tags) || tags.length > 200) throw new Error('每组最多保存 200 条标签')
+      const seenTags = new Set<string>()
+      const tagIds = new Set(tags.map(tag => tag?.id))
+      const neighbors = new Map<string, Set<string>>()
+      for (const id of tagIds) neighbors.set(id, new Set())
+      const normalized = tags.map(tag => {
+        if (!tag || typeof tag.id !== 'string' || !/^[a-z0-9-]{1,64}$/i.test(tag.id) || seenTags.has(tag.id)
+          || typeof tag.text !== 'string' || !tag.text.trim() || tag.text.length > 800
+          || !['user', 'ai'].includes(tag.author)) throw new Error('标签内容或编号无效')
+        seenTags.add(tag.id)
+        // An older client can remove a book without knowing about its tags.
+        const oldTag = previousTags.find(item => item.id === tag.id)
+        const related = tag.relatedTagIds === undefined ? oldTag?.relatedTagIds ?? [] : tag.relatedTagIds
+        if (!Array.isArray(related) || related.length > 199) throw new Error('关联标签列表无效')
+        for (const id of related) {
+          if (!tagIds.has(id) && oldTag?.relatedTagIds?.includes(id)) continue // A linked tag was deleted.
+          if (!tagIds.has(id) || id === tag.id) throw new Error('请选择同一块线索板上的其他标签')
+          neighbors.get(tag.id)!.add(id)
+          neighbors.get(id)!.add(tag.id)
+        }
+        const previousLinks = oldTag?.books ?? []
+        const links = bookList(tag.books).filter(id => {
+          if (books.includes(id)) return true
+          if (previousLinks.includes(id)) return false
+          throw new Error('标签只能关联组内书籍')
+        })
+        const position = tag.position === undefined ? oldTag?.position : tag.position
+        if (position !== undefined && (!position || ![position.x, position.y].every(n => Number.isSafeInteger(n) && Math.abs(n) <= 1000000))) {
+          throw new Error('标签坐标无效')
+        }
+        const color = tag.color === undefined ? oldTag?.color : tag.color
+        if (color !== undefined && (typeof color !== 'string' || !/^#[a-f0-9]{6}$/i.test(color))) throw new Error('标签颜色无效')
+        return { ...(color ? { color } : {}), id: tag.id, text: tag.text.trim(), author: tag.author, books: links,
+          ...(position ? { position: { x: position.x, y: position.y } } : {}) }
+      })
+      return normalized.map(tag => ({ ...tag, relatedTagIds: [...neighbors.get(tag.id)!] }))
+    }
+    function normalizeConnections(incoming: BookConnection[] | undefined, previousLinks: BookConnection[], members: Set<string>) {
+      const links = incoming === undefined ? previousLinks : incoming
+      if (!Array.isArray(links) || links.length > 500) throw new Error('每块线索板最多保存 500 条书间连线')
+      const usedIds = new Set<string>(), pairs = new Set<string>()
+      const result: BookConnection[] = []
+      for (const link of links) {
+        if (!link || typeof link.id !== 'string' || !/^[a-z0-9-]{1,64}$/i.test(link.id) || usedIds.has(link.id)
+          || typeof link.summary !== 'string' || link.summary.length > 800 || !['user','ai'].includes(link.author)
+          || typeof link.from !== 'string' || typeof link.to !== 'string' || link.from === link.to) throw new Error('书间连线无效')
+        if (!members.has(link.from) || !members.has(link.to)) {
+          // Removing a member also removes its previously saved edges.
+          if (previousLinks.some(old => old.id === link.id && old.from === link.from && old.to === link.to)) continue
+          throw new Error('只能连接当前线索板上的书籍')
+        }
+        const pair = JSON.stringify([link.from,link.to].sort())
+        if (pairs.has(pair)) throw new Error('这两本书之间已有连线')
+        pairs.add(pair); usedIds.add(link.id)
+        result.push({id: link.id, from: link.from, to: link.to, summary: link.summary.trim(), author: link.author})
+      }
+      return result
+    }
+    const used = new Set<string>()
+    const groups = input.groups.map(group => {
+      if (!/^[a-z0-9-]{1,64}$/i.test(group.id) || used.has(group.id) || !group.name?.trim() || group.name.length > 80) throw new Error('分组名称或编号无效')
+      used.add(group.id)
+      const books = bookList(group.books)
+      const previousGroup = previous.groups.find(item => item.id === group.id)
+      const tags = group.tags === undefined ? previousGroup?.tags ?? [] : group.tags
+      const normalized = normalizeTags(tags, previousGroup?.tags ?? [], books)
+      return { id: group.id, name: group.name.trim(), books, tags: normalized, connections: normalizeConnections(group.connections, previousGroup?.connections ?? [], new Set(books)) }
+    })
+    // Older clients only send order and groups when updating a shelf.
+    const positions = input.positions ?? previous.positions ?? {}
+    for (const [id, point] of Object.entries(positions)) {
+      if (!ids.has(id) || !point || ![point.x, point.y].every(n => Number.isSafeInteger(n) && Math.abs(n) <= 1000000)) {
+        throw new Error('书籍坐标无效')
+      }
+    }
+    const tags = normalizeTags(input.tags ?? previous.tags ?? [], previous.tags ?? [], [...ids])
+    const connections = normalizeConnections(input.connections, previous.connections ?? [], ids)
+    const contents = { connections, tags, groups, order: bookList(input.order), positions }
+    const revision = input.revision + 1
+    this.db.run('insert or replace into library_board values (1,?,?)', [revision, JSON.stringify(contents)])
+    for (const group of previous.groups) {
+      if (!used.has(group.id)) {
+        this.db.run('delete from board_turns where scope = ?', [group.id])
+        this.db.run('delete from board_conversations where scope = ?', [group.id])
+      }
+    }
+    this.persist()
+    return { revision, ...contents }
+  }
+
+  listBoardConversations(groupId: string | null): BoardConversation[] {
+    return this.query<BoardConversation>(`select id,title,updated_at as updatedAt from board_conversations
+      where scope=? order by updated_at desc, rowid desc`, [groupId ?? ''])
+  }
+
+  renameBoardConversation(groupId: string | null, id: string, title: string): void {
+    if (typeof title !== 'string' || !title.trim() || title.length > 100) throw new Error('对话名称请填写 1 至 100 字')
+    this.db.run('update board_conversations set title=?, updated_at=? where scope=? and id=?', [title.trim(), now(), groupId ?? '', id])
+    if (!this.db.getRowsModified()) throw new Error('此对话不在当前分组内')
+    this.persist()
+  }
+
+  getBoardHistory(groupId: string | null, before?: number, limit = 30, conversationId = 'legacy'): BoardTurn[] {
+    const rows = this.query<{ id: number; question: string; answer: string }>(
+      'select id, question, answer from board_turns where scope = ? and conversation_id = ? and id < ? order by id desc limit ?',
+      [groupId ?? '', conversationId, before ?? Number.MAX_SAFE_INTEGER, limit]
+    )
+    return rows.reverse().map(row => ({ id: row.id, question: row.question, result: JSON.parse(row.answer) }))
+  }
+
+  finishBoardTurn(groupId: string | null, question: string, result: ShelfAnswer, next?: LibraryBoardState, conversationId: string | null = 'legacy', title?: string): void {
+    this.db.run('begin transaction')
+    try {
+      if (next) this.saveBoard(next)
+      if (conversationId !== null) {
+        const scope = groupId ?? ''
+        this.db.run(`insert into board_conversations(scope,id,title,updated_at) values (?,?,?,?)
+          on conflict(scope,id) do update set updated_at=excluded.updated_at`,
+          [scope, conversationId, title?.trim().slice(0, 100) || question.slice(0, 24), now()])
+        this.db.run('insert into board_turns(scope, conversation_id, question, answer) values (?,?,?,?)',
+          [scope, conversationId, question, JSON.stringify(result)])
+      }
+      this.db.run('commit')
+    } catch (error) {
+      this.db.run('rollback')
+      throw error
+    }
+    this.persist()
+  }
+
+  getBookOverview(id: string, title: string): string | undefined {
+    return this.get<{ overview: string }>('select overview from board_book_overviews where document_id=? and title=?', [id, title])?.overview
+  }
+
+  saveBookOverview(id: string, title: string, overview: string): void {
+    this.db.run('insert or replace into board_book_overviews(document_id,title,overview) values (?,?,?)', [id, title, overview])
+    this.persist()
+  }
+
+  getBoardPageText(id: string, page: number): string | undefined {
+    return this.get<{ text: string }>('select substr(text,1,2200) as text from document_pages where document_id=? and page_number=?', [id, page])?.text.trim()
+  }
+
+  sampleBoardPages(id: string): { pageNumber: number; text: string }[] {
+    const rows = this.query<{ page_number: number }>('select page_number from document_pages where document_id=? and length(trim(text))>20 order by page_number', [id])
+    const count = Math.min(rows.length, 6)
+    return Array.from({ length: count }, (_, i) => {
+      const pageNumber = rows[Math.round(i * (rows.length - 1) / Math.max(1, count - 1))]!.page_number
+      const row = this.get<{ text: string }>('select substr(text,1,1000) as text from document_pages where document_id=? and page_number=?', [id, pageNumber])!
+      return { pageNumber, text: row.text }
+    })
+  }
+
   listDocuments(): DocumentRecord[] {
     const rows = this.query<DocumentRow>('select * from documents order by last_opened_at desc')
     return rows.map(toDocument)
+  }
+
+  getReaderOverview() {
+    // Shared imports start on page one, even if this reader has never opened them.
+    const started = `d.last_page_number > 1 or exists (
+      select 1 from reading_visits v where v.document_id = d.id)`
+    const stats = this.get<{ books: number; notes: number; chats: number }>(`
+      select (select count(*) from documents d where ${started}) as books,
+        (select count(*) from annotations) as notes,
+        (select count(*) from ai_conversations) + (select count(*) from board_conversations) as chats`)!
+    const books = this.query<{ id: string; title: string; page: number; total: number | null }>(`
+      select id, title, last_page_number as page, page_count as total from documents d
+      where ${started} order by last_opened_at desc, d.id limit 4`)
+    const notes = this.query<{
+      id: string; book: string; title: string; page: number; kind: string; excerpt: string
+    }>(`select a.id, d.id as book, d.title, a.page_number as page, coalesce(a.scope, a.type) as kind,
+        substr(coalesce(nullif(trim(a.note), ''), a.selected_text, ''), 1, 160) as excerpt
+      from annotations a join documents d on d.id = a.document_id
+      order by a.updated_at desc, a.rowid desc limit 3`)
+    const recent = this.query<{ id: string; title: string; book: string | null; scope: string | null; source: string | null }>(`
+      select id, title, book, scope, source from (
+        select c.id, c.title, d.id as book, null as scope, d.title as source, c.updated_at
+        from ai_conversations c join documents d on d.id = c.document_id
+        union all select id, title, null, scope, null, updated_at from board_conversations
+      ) order by updated_at desc, id limit 3`)
+    const groups = recent.some(chat => chat.scope) ? this.getBoard().groups : []
+    const chats = recent.map(chat => ({ ...chat, source: chat.source ??
+      (chat.scope ? groups.find(group => group.id === chat.scope)?.name ?? '书库分组' : '全部书籍') }))
+    return { stats, books, notes, chats }
   }
 
   getDocument(id: string): DocumentRecord {
@@ -484,6 +689,13 @@ export class ReadingPartnerDatabase {
     return this.getDocument(id)
   }
 
+  addSharedDocument(doc: Pick<DocumentRecord, 'id' | 'title' | 'filePath' | 'fileSize' | 'createdAt' | 'pageCount'>): void {
+    this.db.run(`insert or ignore into documents
+      (id,title,file_path,file_size,page_count,last_page_number,created_at,last_opened_at)
+      values (?,?,?,?,?,1,?,?)`, [doc.id,doc.title,doc.filePath,doc.fileSize,doc.pageCount,doc.createdAt,doc.createdAt])
+    if (this.db.getRowsModified()) this.persist()
+  }
+
   saveDocumentProgress(documentId: string, pageNumber: number): DocumentRecord {
     const document = this.getDocument(documentId)
     const normalizedPageNumber = Number.isFinite(pageNumber) ? Math.max(1, Math.floor(pageNumber)) : 1
@@ -492,6 +704,7 @@ export class ReadingPartnerDatabase {
         ? Math.min(normalizedPageNumber, document.pageCount)
         : normalizedPageNumber
     const timestamp = now()
+    this.db.run('insert or ignore into reading_visits values (?, ?)', [documentId, safePageNumber])
     this.db.run(
       `update documents
        set last_page_number = ?,
@@ -502,6 +715,12 @@ export class ReadingPartnerDatabase {
     this.persist()
 
     return this.getDocument(documentId)
+  }
+
+  visitedPages(documentId: string): Set<number> {
+    return new Set(this.query<{ page_number: number }>(
+      'select page_number from reading_visits where document_id = ?', [documentId]
+    ).map(row => row.page_number))
   }
 
   getDocumentTextIndexStatus(documentId: string): DocumentTextIndexStatus {
@@ -977,8 +1196,8 @@ export class ReadingPartnerDatabase {
 
     this.db.run(
       `insert into annotations (
-          id, document_id, type, page_number, selected_text, color, note, rects_json, vocabulary_id, author_name, created_at, updated_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          id, document_id, type, page_number, selected_text, color, note, rects_json, vocabulary_id, author_name, created_at, updated_at, scope
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         input.documentId,
@@ -991,7 +1210,8 @@ export class ReadingPartnerDatabase {
         input.vocabularyId ?? null,
         authorName,
         timestamp,
-        timestamp
+        timestamp,
+        input.scope ?? null
       ]
     )
     this.persist()
@@ -1064,8 +1284,8 @@ export class ReadingPartnerDatabase {
     this.getDocument(annotation.documentId)
     this.db.run(
       `insert into annotations (
-          id, document_id, type, page_number, selected_text, color, note, rects_json, vocabulary_id, author_name, created_at, updated_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          id, document_id, type, page_number, selected_text, color, note, rects_json, vocabulary_id, author_name, created_at, updated_at, scope
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         on conflict(id) do update set
           document_id = excluded.document_id,
           type = excluded.type,
@@ -1077,7 +1297,7 @@ export class ReadingPartnerDatabase {
           vocabulary_id = excluded.vocabulary_id,
           author_name = excluded.author_name,
           created_at = excluded.created_at,
-          updated_at = excluded.updated_at`,
+          updated_at = excluded.updated_at, scope = excluded.scope`,
       [
         annotation.id,
         annotation.documentId,
@@ -1090,7 +1310,8 @@ export class ReadingPartnerDatabase {
         annotation.vocabularyId,
         annotation.authorName || 'Reader',
         annotation.createdAt,
-        annotation.updatedAt
+        annotation.updatedAt,
+        annotation.scope ?? null
       ]
     )
     this.persist()
@@ -1156,8 +1377,8 @@ export class ReadingPartnerDatabase {
 
         this.db.run(
           `insert into annotations (
-              id, document_id, type, page_number, selected_text, color, note, rects_json, vocabulary_id, author_name, created_at, updated_at
-            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              id, document_id, type, page_number, selected_text, color, note, rects_json, vocabulary_id, author_name, created_at, updated_at, scope
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             on conflict(id) do update set
               document_id = excluded.document_id,
               type = excluded.type,
@@ -1169,7 +1390,7 @@ export class ReadingPartnerDatabase {
               vocabulary_id = excluded.vocabulary_id,
               author_name = excluded.author_name,
               created_at = excluded.created_at,
-              updated_at = excluded.updated_at`,
+              updated_at = excluded.updated_at, scope = excluded.scope`,
           [
             id,
             documentId,
@@ -1182,7 +1403,8 @@ export class ReadingPartnerDatabase {
             null,
             annotation.authorName?.trim() || 'Reader',
             createdAt,
-            updatedAt
+            updatedAt,
+            annotation.scope ?? null
           ]
         )
         imported += 1
@@ -1784,6 +2006,7 @@ export class ReadingPartnerDatabase {
 
   private migrate(): void {
     this.db.exec(`
+      create table if not exists library_board (id integer primary key, revision integer not null, contents text not null);
       create table if not exists documents (
         id text primary key,
         title text not null,
@@ -1795,6 +2018,13 @@ export class ReadingPartnerDatabase {
         last_opened_at text not null
       );
 
+      create table if not exists board_turns (
+        id integer primary key autoincrement, scope text not null, question text not null, answer text not null
+      );
+      create index if not exists idx_board_turns_scope on board_turns(scope,id);
+      create table if not exists board_book_overviews (
+        document_id text primary key references documents(id) on delete cascade, title text not null, overview text not null
+      );
       create table if not exists annotations (
         id text primary key,
         document_id text not null references documents(id) on delete cascade,
@@ -1931,6 +2161,15 @@ export class ReadingPartnerDatabase {
       );
     `)
 
+    this.db.run(`create table if not exists reading_visits (document_id text not null, page_number integer not null, primary key(document_id,page_number))`)
+    this.ensureColumn('board_turns', 'conversation_id', "text not null default 'legacy'")
+    this.db.exec(`create table if not exists board_conversations (
+      scope text not null, id text not null, title text not null, updated_at text not null, primary key(scope,id));
+      create index if not exists idx_board_turns_thread on board_turns(scope,conversation_id,id);
+      insert or ignore into board_conversations(scope,id,title,updated_at)
+        select scope,'legacy','此前的共读对话',strftime('%Y-%m-%dT%H:%M:%fZ','now') from board_turns
+        where conversation_id='legacy' group by scope;`)
+    this.ensureColumn('annotations', 'scope', 'text')
     this.ensureColumn('annotations', 'author_name', "text not null default 'Reader'")
     this.ensureColumn('annotations', 'vocabulary_id', 'text')
     this.ensureColumn('documents', 'last_page_number', 'integer not null default 1')
@@ -1944,16 +2183,29 @@ export class ReadingPartnerDatabase {
   private seedProviders(): void {
     const count = this.get<{ count: number }>('select count(*) as count from ai_providers')
 
+    const localProvider: UpsertAIProviderInput = {
+      id: 'local-hub',
+      label: '本地 LLM Hub',
+      baseUrl: 'http://127.0.0.1:18080/v1',
+      defaultModel: 'qwen-local',
+      supportsThinking: true,
+      supportsLongContext: true
+    }
+
     if (count && count.count > 0) {
+      if (!this.get<AIProviderRow>('select id from ai_providers where id = ?', [localProvider.id])) {
+        this.upsertAIProvider(localProvider)
+      }
       return
     }
 
     const providers: UpsertAIProviderInput[] = [
+      localProvider,
       {
         id: 'deepseek',
         label: 'DeepSeek',
         baseUrl: 'https://api.deepseek.com',
-        defaultModel: 'deepseek-v4-flash',
+        defaultModel: 'deepseek-flash',
         supportsThinking: true,
         supportsLongContext: true
       },

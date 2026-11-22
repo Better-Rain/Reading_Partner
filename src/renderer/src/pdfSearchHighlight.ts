@@ -204,3 +204,21 @@ export const rectsFromTextLayerMatch = (
   range.detach()
   return normalizeAnnotationRects(rects)
 }
+
+// PDF.js may split a quoted sentence across spans without a space between their text nodes.
+export const exactQuoteRects = (layer: HTMLElement, page: HTMLElement, scale: number) => {
+  const index = buildTextLayerSearchIndex(layer)
+  const offsets: number[] = []
+  let compact = ''
+  for (let i = 0; i < index.text.length; i++) {
+    if (index.text[i] === ' ') continue
+    compact += index.text[i]
+    offsets.push(i)
+  }
+  return (quote: string): AnnotationRect[] => {
+    const needle = normalizeSearchText(quote).replace(/ /g, '')
+    const start = needle && compact.indexOf(needle)
+    if (typeof start !== 'number' || start < 0 || compact.indexOf(needle, start + 1) >= 0) return []
+    return rectsFromTextLayerMatch(index, { start: offsets[start]!, end: offsets[start + needle.length - 1]! + 1 }, page, scale)
+  }
+}

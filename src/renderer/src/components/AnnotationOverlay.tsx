@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { annotationScopes } from '../../../shared/types'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
 import { X } from 'lucide-react'
 import type { AnnotationRecord } from '../../../shared/types'
@@ -93,7 +94,7 @@ const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value))
 
 const getTooltipPosition = (
-  event: ReactMouseEvent,
+  event: { currentTarget: Element; clientX: number; clientY: number },
   layerRect: DOMRect | undefined
 ): { x: number; y: number; maxHeight: number; placementY: HoveredAnnotation['placementY'] } => {
   if (!layerRect) {
@@ -152,11 +153,15 @@ const getTooltipPosition = (
 }
 
 export function AnnotationOverlay({
+  focus,
+  onDismissFocus,
   annotations,
   interactionMode,
   scale,
   temporaryHighlight
 }: {
+  focus: AnnotationRecord | null
+  onDismissFocus: () => void
   annotations: AnnotationRecord[]
   interactionMode: AnnotationInteractionMode
   scale: number
@@ -164,12 +169,13 @@ export function AnnotationOverlay({
 }): JSX.Element {
   const [hoveredAnnotation, setHoveredAnnotation] = useState<HoveredAnnotation | null>(null)
   const [pinnedAnnotation, setPinnedAnnotation] = useState<HoveredAnnotation | null>(null)
+  const layerRef = useRef<HTMLDivElement>(null)
   const canInspect = interactionMode === 'inspect'
   const visualItems = annotations.map((annotation) => ({
     annotation,
     rects: parseAnnotationRects(annotation.rectsJson)
   }))
-  const pageMarkers = visualItems.filter(({ annotation, rects }) => annotation.type === 'bookmark' || rects.length === 0)
+  const pageMarkers = visualItems.filter(({ annotation, rects }) => annotation.scope === 'margin' || annotation.type === 'bookmark' || rects.length === 0)
 
   useEffect(() => {
     if (!canInspect) {
@@ -186,54 +192,50 @@ export function AnnotationOverlay({
     }
   }, [annotations, canInspect, pinnedAnnotation])
 
+  // The exact text rectangle may arrive after PDF.js has rendered the page.
+  // Until then the page marker is a valid anchor, including for image-only pages.
+  useLayoutEffect(() => {
+    const layer = layerRef.current
+    if (!focus || !canInspect || !layer) return
+    const anchor = layer.querySelector<HTMLElement>(`[data-annotation-id="${CSS.escape(focus.id)}"]`)
+    const surface = layer.closest<HTMLElement>('.reader-surface')
+    if (!anchor || !surface) return
+    const positionPopup = () => {
+      if (!layer.clientHeight || !surface.clientHeight) return
+      const viewport = surface.getBoundingClientRect()
+      const before = anchor.getBoundingClientRect()
+      surface.scrollTop += before.top - viewport.top - surface.clientHeight / 3
+      if (before.left < viewport.left || before.left >= viewport.right - 16) {
+        surface.scrollLeft += before.left - viewport.left - surface.clientWidth / 2
+      }
+      const rect = anchor.getBoundingClientRect()
+      const point = { currentTarget: anchor, clientX: rect.left + Math.min(12, rect.width / 2), clientY: rect.bottom }
+      setHoveredAnnotation(null)
+      setPinnedAnnotation({ annotation: focus, ...getTooltipPosition(point, layer.getBoundingClientRect()) })
+    }
+    const observer = new ResizeObserver(positionPopup)
+    observer.observe(layer)
+    return () => observer.disconnect()
+  }, [focus, annotations, canInspect, scale])
+
   useEffect(() => {
-    if (!pinnedAnnotation) {
-      return
-    }
-
-    let pointerDown: { x: number; y: number; target: EventTarget | null } | null = null
-
-    const rememberPointerDown = (event: MouseEvent): void => {
-      pointerDown = {
-        x: event.clientX,
-        y: event.clientY,
-        target: event.target
-      }
-    }
-
-    const closePinnedTooltip = (event: MouseEvent): void => {
-      const target = pointerDown?.target ?? event.target
-
-      if (!(target instanceof HTMLElement)) {
-        return
-      }
-
-      const deltaX = pointerDown ? event.clientX - pointerDown.x : 0
-      const deltaY = pointerDown ? event.clientY - pointerDown.y : 0
-
-      if (Math.hypot(deltaX, deltaY) > 5) {
-        return
-      }
-
-      if (
-        target.closest(
-          '.pdf-annotation-rect, .pdf-annotation-pin, .pdf-page-marker, .pdf-annotation-tooltip'
-        )
-      ) {
-        return
-      }
-
+    if (!pinnedAnnotation && !focus) return
+    const dismiss = () => {
       setPinnedAnnotation(null)
+      setHoveredAnnotation(null)
+      onDismissFocus()
     }
-
-    document.addEventListener('mousedown', rememberPointerDown)
-    document.addEventListener('mouseup', closePinnedTooltip)
-
+    const outside = (event: Event) => {
+      if (event.target instanceof Element && !event.target.closest('.pdf-annotation-tooltip, [data-annotation-id]')) dismiss()
+    }
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') dismiss() }
+    document.addEventListener('click', outside, true)
+    document.addEventListener('keydown', onKey)
     return () => {
-      document.removeEventListener('mousedown', rememberPointerDown)
-      document.removeEventListener('mouseup', closePinnedTooltip)
+      document.removeEventListener('click', outside, true)
+      document.removeEventListener('keydown', onKey)
     }
-  }, [pinnedAnnotation])
+  }, [pinnedAnnotation, focus, onDismissFocus])
 
   const showTooltip = (annotation: AnnotationRecord, event: ReactMouseEvent): void => {
     if (!canInspect) {
@@ -258,6 +260,7 @@ export function AnnotationOverlay({
       return
     }
 
+    onDismissFocus()
     event.preventDefault()
     event.stopPropagation()
     const layerRect = event.currentTarget
@@ -278,17 +281,16 @@ export function AnnotationOverlay({
 
   return (
     <div
+      ref={layerRef}
       className={canInspect ? 'pdf-annotation-layer is-inspecting' : 'pdf-annotation-layer is-selecting'}
       aria-hidden={!canInspect}
     >
       {visualItems.flatMap(({ annotation, rects }) =>
         rects.map((rect, rectIndex) => {
-          const isVocabulary = Boolean(annotation.vocabularyId)
+          const isVocabulary = Boolean(annotation.vocabularyId || annotation.scope === 'vocabulary')
           const verticalInset = annotation.type === 'highlight' ? Math.min(3, rect.height * scale * 0.18) : 0
-          const top = isVocabulary
-            ? rect.top * scale + Math.max(2, rect.height * scale - 3)
-            : rect.top * scale + verticalInset
-          const height = isVocabulary ? 3 : Math.max(2, rect.height * scale - verticalInset * 2)
+          const top = rect.top * scale + verticalInset
+          const height = Math.max(2, rect.height * scale - verticalInset * 2)
           const style: CSSProperties = {
             left: rect.left * scale,
             top,
@@ -307,6 +309,7 @@ export function AnnotationOverlay({
             <span
               className={`pdf-annotation-rect is-${annotation.type}${isVocabulary ? ' is-vocabulary' : ''}`}
               key={`${annotation.id}-${rectIndex}`}
+              data-annotation-id={annotation.id}
               onMouseEnter={(event) => showTooltip(annotation, event)}
               onMouseMove={(event) => showTooltip(annotation, event)}
               onMouseLeave={hideTooltip}
@@ -318,7 +321,7 @@ export function AnnotationOverlay({
       )}
 
       {visualItems
-        .filter(({ annotation, rects }) => annotation.type === 'note' && !annotation.vocabularyId && rects.length > 0)
+        .filter(({ annotation, rects }) => annotation.type === 'note' && annotation.scope !== 'margin' && !annotation.vocabularyId && annotation.scope !== 'vocabulary' && rects.length > 0)
         .map(({ annotation, rects }) => {
           const firstRect = rects[0]
 
@@ -326,6 +329,7 @@ export function AnnotationOverlay({
             <span
               className="pdf-annotation-pin is-note"
               key={`${annotation.id}-pin`}
+              data-annotation-id={annotation.id}
               onMouseEnter={(event) => showTooltip(annotation, event)}
               onMouseMove={(event) => showTooltip(annotation, event)}
               onMouseLeave={hideTooltip}
@@ -342,6 +346,7 @@ export function AnnotationOverlay({
         <span
           className={`pdf-page-marker is-${annotation.type}`}
           key={`${annotation.id}-marker`}
+          data-annotation-id={annotation.id}
           onMouseEnter={(event) => showTooltip(annotation, event)}
           onMouseMove={(event) => showTooltip(annotation, event)}
           onMouseLeave={hideTooltip}
@@ -385,7 +390,7 @@ export function AnnotationOverlay({
         >
           <div className="pdf-annotation-tooltip-heading">
             <strong>
-              {visibleTooltip.annotation.vocabularyId
+              {visibleTooltip.annotation.scope ? annotationScopes[visibleTooltip.annotation.scope] : visibleTooltip.annotation.vocabularyId
                 ? '生词'
                 : visibleTooltip.annotation.type === 'highlight'
                 ? '高亮'
@@ -397,7 +402,7 @@ export function AnnotationOverlay({
               <button
                 type="button"
                 title="关闭批注浮窗"
-                onClick={() => setPinnedAnnotation(null)}
+                onClick={() => { setPinnedAnnotation(null); setHoveredAnnotation(null); onDismissFocus() }}
               >
                 <X size={13} />
               </button>

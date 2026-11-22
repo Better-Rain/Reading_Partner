@@ -1,3 +1,4 @@
+import { annotationScopes } from '../../../shared/types'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bookmark,
@@ -64,7 +65,7 @@ export const getAnnotationPreview = (annotation: AnnotationRecord): string =>
   annotation.note?.trim() || annotation.selectedText?.trim() || '书签'
 
 const getAnnotationCategory = (annotation: AnnotationRecord): AnnotationCategoryFilter =>
-  annotation.vocabularyId ? 'vocabulary' : annotation.type
+  annotation.vocabularyId || annotation.scope === 'vocabulary' ? 'vocabulary' : annotation.type
 
 const getAnnotationCategoryLabel = (category: AnnotationCategoryFilter): string => {
   if (category === 'highlight') {
@@ -189,6 +190,8 @@ type NotesPanelProps = {
   onUpdateAnnotation: (id: string, note: string, color: string | null) => void
 }
 
+const annotationsPerPage = 40
+
 export function NotesPanel({
   annotations,
   currentPageNumber,
@@ -241,6 +244,11 @@ export function NotesPanel({
       ),
     [annotations, currentPageNumber, effectiveFilters]
   )
+  const [listPage, setListPage] = useState(0)
+  const pageTotal = Math.ceil(filteredAnnotations.length / annotationsPerPage)
+  const pageIndex = Math.min(listPage, Math.max(0, pageTotal - 1))
+  const start = pageIndex * annotationsPerPage
+  useEffect(() => { setListPage(0) }, [effectiveFilters])
   const visibleOnPdfCount = useMemo(
     () =>
       annotations.filter((annotation) =>
@@ -547,13 +555,20 @@ export function NotesPanel({
         )}
       </div>
 
+      {pageTotal > 1 && (
+        <nav className="annotation-pagination" aria-label="批注列表分页">
+          <button className="text-button neutral" disabled={pageIndex === 0} onClick={() => setListPage(pageIndex - 1)}>上一组</button>
+          <span>{start + 1}–{Math.min(start + annotationsPerPage, filteredAnnotations.length)} / {filteredAnnotations.length}</span>
+          <button className="text-button neutral" disabled={pageIndex + 1 === pageTotal} onClick={() => setListPage(pageIndex + 1)}>下一组</button>
+        </nav>
+      )}
       <div className="annotation-list">
         {annotations.length === 0 ? (
           <p className="muted">高亮、批注和书签会出现在这里。</p>
         ) : filteredAnnotations.length === 0 ? (
           <p className="muted">没有符合当前筛选条件的批注。</p>
         ) : (
-          filteredAnnotations.map((annotation) => {
+          filteredAnnotations.slice(start, start + annotationsPerPage).map((annotation) => {
             const expanded = expandedIds.has(annotation.id)
             const preview = getAnnotationPreview(annotation)
 
@@ -571,7 +586,7 @@ export function NotesPanel({
                           style={{ backgroundColor: annotation.color }}
                         />
                       )}
-                      {getAnnotationCategoryLabel(getAnnotationCategory(annotation))}
+                      {(annotation.scope && annotationScopes[annotation.scope]) || getAnnotationCategoryLabel(getAnnotationCategory(annotation))}
                     </strong>
                     <span>{preview}</span>
                   </span>

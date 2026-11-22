@@ -1,3 +1,4 @@
+import type { ReadingLink } from '../../../shared/readingLinks'
 import { memo, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
@@ -5,9 +6,11 @@ import { extractAIReasoning, stripAIAssistedAnnotationBlock } from '../aiText'
 
 const tableCellSeparatorPlaceholder = '\u0000PIPE\u0000'
 
-const renderInlineMarkdown = (text: string): ReactNode[] => {
+type LinkHandler = (target: ReadingLink) => void
+
+const renderInline = (text: string, navigate?: LinkHandler): ReactNode[] => {
   const nodes: ReactNode[] = []
-  const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g
+  const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*|\[([^\]\n]+)\]\((quote|note):([\da-f-]+)\)|第\s*(\d+)\s*页)/gi
   let lastIndex = 0
   let match: RegExpExecArray | null
 
@@ -19,12 +22,20 @@ const renderInlineMarkdown = (text: string): ReactNode[] => {
     const token = match[0]
     const key = `${match.index}-${token}`
 
-    if (token.startsWith('**')) {
-      nodes.push(<strong key={key}>{token.slice(2, -2)}</strong>)
+    if (match[2] || match[5]) {
+      const label = match[2] || token
+      const target: ReadingLink = match[3] === 'note'
+        ? { kind: 'note', id: match[4]! }
+        : { kind: 'page', page: Number(match[5] || match[4]), ...(match[2] ? { quote: match[2] } : {}) }
+      nodes.push(navigate ? <a className="reading-link" key={key} href="#reader" data-reference={match[3] || 'page'}
+        title={target.kind === 'note' ? '查看这条批注' : `查看第 ${target.page} 页${target.quote ? '原文' : ''}`}
+        onClick={event => { event.preventDefault(); navigate(target) }}>{label}</a> : label)
+    } else if (token.startsWith('**')) {
+      nodes.push(<strong key={key}>{renderInline(token.slice(2, -2), navigate)}</strong>)
     } else if (token.startsWith('`')) {
       nodes.push(<code key={key}>{token.slice(1, -1)}</code>)
     } else {
-      nodes.push(<em key={key}>{token.slice(1, -1)}</em>)
+      nodes.push(<em key={key}>{renderInline(token.slice(1, -1), navigate)}</em>)
     }
 
     lastIndex = match.index + token.length
@@ -84,9 +95,10 @@ function ReasoningDisclosure({ text }: { text: string }): JSX.Element {
   )
 }
 
-function MarkdownContentComponent({ text }: { text: string }): JSX.Element {
+function MarkdownContentComponent({ text, onReadingLink }: { text: string; onReadingLink?: LinkHandler | undefined }): JSX.Element {
   const { reasoning, content } = extractAIReasoning(stripAIAssistedAnnotationBlock(text))
   const blocks = useMemo(() => {
+    const renderInlineMarkdown = (line: string) => renderInline(line, onReadingLink)
     const lines = content.replace(/\r\n/g, '\n').split('\n')
     const nextBlocks: ReactNode[] = []
     let index = 0
@@ -240,7 +252,7 @@ function MarkdownContentComponent({ text }: { text: string }): JSX.Element {
     }
 
     return nextBlocks
-  }, [content])
+  }, [content, onReadingLink])
 
   return (
     <div className="markdown-content">

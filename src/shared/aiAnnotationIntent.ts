@@ -4,6 +4,9 @@ const annotationIntentPattern =
 const negativeAnnotationIntentPattern =
   /(不要|不用|别|无需|不需要|禁止|do\s+not|don't|no)\s*.{0,8}(批注|注释|标注|页边注|边注|旁注|笔记|annotation|annotate|note)/i
 
+export const declinesAnnotations = (message: string): boolean =>
+  negativeAnnotationIntentPattern.test(message) || /(?:只(?:需|要)?回答|只(?:用)?解释|just\s+answer|answer\s+only)/i.test(message)
+
 export const hasExplicitAnnotationIntent = (message: string): boolean => {
   const normalized = message.replace(/\s+/g, ' ').trim()
 
@@ -11,5 +14,5 @@ export const hasExplicitAnnotationIntent = (message: string): boolean => {
     return false
   }
 
-  return annotationIntentPattern.test(normalized) && !negativeAnnotationIntentPattern.test(normalized)
+  return annotationIntentPattern.test(normalized) && !declinesAnnotations(normalized)
 }

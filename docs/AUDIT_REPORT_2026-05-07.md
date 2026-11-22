@@ -1,9 +1,9 @@
 # Reading Partner 审计与整改跟踪报告
 
 日期：2026-05-07  
-仓库：`D:\programme\Vscode Projects\Reading_Partner`
+仓库：`<project-directory>`
 来源：`https://github.com/Better-Rain/Reading_Partner.git`
-当前阶段：主要审计整改和结构性优化已告一段落，可以在现有边界上进入新增特性开发。
+当前阶段：主要审计整改和结构性优化已告一段落；AI harness 已完成工具调用重制并通过本地 Hub 与 DeepSeek 端到端验证，可以在现有边界上进入新增特性开发。
 
 ## 1. 执行结论
 
@@ -13,7 +13,7 @@
 2. 主进程对大文件、数据库持久化、AI 流式请求的长耗时链路缺少足够隔离和容错。
 3. 文档、密钥、词典等边缘路径存在可维护性和鲁棒性问题。
 
-截至本次更新，多个风险已完成或大幅缓解：`App.tsx` 已从审计时约 3700+ 行下降到约 744 行；AI SSE 容错/取消/错误分类、KeyStore 容错、StarDict 文件句柄复用、数据库合并异步原子写入、PDF 文本抽取进度/取消、安装路径文档均已处理。后续新增特性应沿用现有 hooks/components 边界；PDF 索引和数据库持久化仍可在需要时继续做 worker 化或增量化改造。
+截至本次更新，多个风险已完成或大幅缓解：`App.tsx` 已从审计时约 3700+ 行下降到约 744 行；AI SSE 容错/取消/错误分类、OpenAI-compatible 工具回合、候选批注恢复、KeyStore 容错、StarDict 文件句柄复用、数据库合并异步原子写入、PDF 文本抽取进度/取消、安装路径文档均已处理。当前代码还已加入本地 OCR、AI 批注选区锚定/去重、Markdown 表格和更大的文档上下文窗口。后续新增特性应沿用现有 hooks/components 边界；PDF 索引和数据库持久化仍可在需要时继续做 worker 化或增量化改造。
 
 ## 2. 环境与验证
 
@@ -35,13 +35,19 @@ npm ci --no-audit --no-fund
 ```powershell
 npm run typecheck
 npm run build
+npm run probe:local
+npm run probe:cancel
+npm run probe:deepseek
 ```
+
+真实 Electron 窗口可用 `npm run probe:electron` 做一次 IPC/UI 烟测；该命令
+会自动启动隔离的 Electron 实例并在结束后清理测试 profile。
 
 最近一次验证结果：`npm run typecheck` 和 `npm run build` 均通过。
 
 补充样例 PDF 烟测：
 
-- 文件：`D:\Books\The Autobiography of Lincoln Steffens Volume II Muckraking Revolution Seeing America at Last (Lincoln aut Steffens) (z-library.sk, 1lib.sk, z-lib.sk).pdf`
+- 文件：`E:\Programs\Reading Partner Library\The Autobiography of Lincoln Steffens Volume II Muckraking Revolution Seeing America at Last (Lincoln aut Steffens) (z-library.sk, 1lib.sk, z-lib.sk).pdf`
 - 结果：546 页，532 个非空文本页，约 1,525,282 字符，整本抽取约 4.3 秒。
 
 ## 3. 风险处理状态
@@ -51,10 +57,11 @@ npm run build
 | R1 | `src/renderer/src/App.tsx` 过大，前端职责集中 | 已基本完成，可转入新特性前维护 | 已拆出 AI 面板、笔记面板、搜索/设置/词汇面板、Markdown 渲染、批注浮层、PDF 搜索高亮、阅读器工具栏、阅读器表面、窗口栏、文档库、选区工具条、快捷键/平移/搜索定位/视口重置 hooks、PDF 文本索引 hook、批注撤销 hook、批注 CRUD hook、AI 操作记录 hook、AI 会话状态 hook、AI 运行/流式 hook、词汇本操作 hook。`App.tsx` 已降至约 744 行。 | 暂不建议继续为行数拆分；后续新特性可按领域新增 hook 或组件。 |
 | R2 | 数据库每次写操作同步整库落盘，可能阻塞主进程 | 大幅缓解，继续优化 | `ReadingPartnerDatabase.persist()` 已改为合并写入；落盘改为异步串行写入临时文件后原子替换；退出前会等待 `flush()`，并补充数据库尚未初始化时的退出保护。 | `sql.js` 仍需要同步 `db.export()` 生成整库快照；后续可评估增量持久化、worker 化导出或真正的 SQLite 文件型驱动。 |
 | R3 | PDF 文本抽取在主进程中顺序解析，大 PDF 可能卡顿 | 大幅缓解 | `extractPdfText()` 已在逐页处理间让出事件循环；文本索引已增加 `start/progress/done/cancelled/error` 事件、renderer 进度状态和工具栏取消按钮，主进程可按文档取消正在运行的索引任务；renderer 索引进度/取消流程已迁入 `useDocumentTextIndex()`。 | 仍会一次性读取 PDF 并在主进程解析；后续建议 worker/独立进程化和更完整的任务队列。 |
-| R4 | AI 流式请求缺少显式超时、取消和 SSE 容错 | 已处理，后续可打磨 | 已加入 120 秒超时、`AbortController`、更宽容的 SSE `data:` 解析和 JSON 解析保护；renderer 已提供运行中取消按钮，主进程可按 `requestId` abort 正在运行的 AI 请求；HTTP/网络错误已按鉴权、限流、请求/模型、服务端和网络连接分类。 | 后续可在 UI 中进一步用视觉状态区分不同错误类型。 |
+| R4 | AI 流式请求缺少显式超时、取消和 SSE 容错 | 已处理，后续可打磨 | 已加入 300 秒总超时、120 秒读取空闲超时、`AbortController`、reader 取消、UTF-8 SSE `data:` 解析、JSON 响应、reasoning 通道和错误部分输出保留；renderer 已提供运行中取消按钮，主进程可按 `requestId` abort 正在运行的 AI 请求；HTTP/网络错误已按鉴权、限流、请求/模型、服务端和网络连接分类。 | 后续可在 UI 中进一步用视觉状态区分不同错误类型。 |
+| R8 | AI 批注协议导致回答中断或批注不落库 | 已处理，后续可扩展 | 聊天与显式文档批注使用 `create_annotations` 工具调用；主进程校验并先落候选批注，再回传工具结果触发第二轮最终回答；工具不支持时自动兼容重试；批注事件独立于回答完成事件；候选可保留/撤销；本地 Hub 和 DeepSeek 均完成端到端验证。 | 后续可持久化 AI 操作记录，并增加 provider-specific tool schema 适配。 |
 | R5 | `KeyStore` secrets JSON 损坏会影响配置路径 | 已处理 | `readAll()` 已加入异常保护和结构过滤，损坏时返回空配置并打印错误。 | 可进一步增加损坏文件备份/恢复提示。 |
 | R6 | StarDict 每次查词重复打开 `.dict` 文件 | 已处理 | StarDict source 已复用 `.dict` 文件句柄，并在替换/退出时关闭。 | 可继续优化大词典索引内存占用和模糊查询策略。 |
-| R7 | 安装/启动文档路径与本机实际路径不一致 | 已处理 | `docs/USER_SETUP_GUIDE.md` 已更新到 `D:\programme\Vscode Projects\Reading_Partner`，并保留 Electron 镜像说明。 | 后续可补充故障排查条目。 |
+| R7 | 安装/启动文档路径与本机实际路径不一致 | 已处理 | `docs/USER_SETUP_GUIDE.md` 已更新到 `<project-directory>`，并保留 Electron 镜像说明。 | 后续可补充故障排查条目。 |
 
 ## 4. 已完成的主要提交
 
@@ -86,10 +93,11 @@ npm run build
 3. 评估数据库持久化从“整库 export 快照写回”改为更细粒度方案，或将导出阶段移到 worker/独立进程。
 4. 在 AI 面板中进一步用视觉状态区分鉴权、限流、网络和模型错误。
 5. 增加关键纯函数单元测试，覆盖 AI 标注解析、搜索定位、批注几何归一化、StarDict 查询。
+6. 将 `scripts/ai-harness-loop-probe.ts` 与 `scripts/deepseek-harness-probe.cjs` 纳入发布前手工检查；云端探针需要本机密钥，不应在 CI 中硬编码。
 
 ## 6. 当前开发约束
 
-- 本项目是从用户自己的 GitHub 仓库 clone 下来的，本机路径为 `D:\programme\Vscode Projects\Reading_Partner`。
+- 本项目是从用户自己的 GitHub 仓库 clone 下来的，本机路径为 `<project-directory>`。
 - 继续开发时应优先保持现有 Electron + React + TypeScript 架构，不引入大规模框架替换。
 - 每次行为相关改动后至少运行：
 

@@ -1,0 +1,5 @@
+build/
+Resources/library-ca.der
+xcuserdata/
+*.xcuserstate
+Resources/connection.json

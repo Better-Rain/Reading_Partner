@@ -5,10 +5,12 @@ import type { TemporarySearchHighlight } from '../components/AnnotationOverlay'
 import {
   buildTextLayerSearchIndex,
   findSearchMatch,
+  exactQuoteRects,
   rectsFromTextLayerMatch
 } from '../pdfSearchHighlight'
 
 export type ActiveSearchTarget = {
+  exactQuote?: boolean
   nonce: number
   query: string
   result: DocumentSearchResult
@@ -47,16 +49,22 @@ export const useSearchHighlightLocator = ({
       const pageElement = readerSurfaceRef.current?.querySelector<HTMLElement>('.react-pdf__Page')
       const textLayer = pageElement?.querySelector<HTMLElement>('.react-pdf__Page__textContent')
 
-      if (!pageElement || !textLayer || textLayer.textContent?.trim().length === 0) {
-        if (attempt < 14) {
+      if (!pageElement || pageElement.dataset.pageNumber !== String(pageNumber) || !textLayer?.textContent?.trim()) {
+        if (attempt < (activeSearchTarget.exactQuote ? 50 : 14)) {
           retryTimer = window.setTimeout(() => locateSearchTarget(attempt + 1), 80)
+        } else {
+          onStatusChange(`已打开第 ${pageNumber} 页，文字层不可用`)
         }
         return
       }
 
-      const index = buildTextLayerSearchIndex(textLayer)
-      const match = findSearchMatch(index, activeSearchTarget.result, activeSearchTarget.query)
-      const rects = match ? rectsFromTextLayerMatch(index, match, pageElement, scale) : []
+      const rects = activeSearchTarget.exactQuote
+        ? exactQuoteRects(textLayer, pageElement, scale)(activeSearchTarget.query)
+        : (() => {
+            const index = buildTextLayerSearchIndex(textLayer)
+            const match = findSearchMatch(index, activeSearchTarget.result, activeSearchTarget.query)
+            return match ? rectsFromTextLayerMatch(index, match, pageElement, scale) : []
+          })()
 
       if (rects.length > 0) {
         onHighlightChange({
@@ -65,11 +73,16 @@ export const useSearchHighlightLocator = ({
           text: activeSearchTarget.result.snippet,
           rects
         })
-        onStatusChange(`已定位第 ${activeSearchTarget.result.pageNumber} 页的搜索片段`)
+        if (activeSearchTarget.exactQuote) {
+          const surface = readerSurfaceRef.current
+          if (surface) surface.scrollTop += pageElement.getBoundingClientRect().top - surface.getBoundingClientRect().top
+            + rects[0]!.top * scale - surface.clientHeight / 3
+        }
+        onStatusChange(`已定位第 ${activeSearchTarget.result.pageNumber} 页的${activeSearchTarget.exactQuote ? '引用原文' : '搜索片段'}`)
         return
       }
 
-      if (attempt < 14) {
+      if (attempt < (activeSearchTarget.exactQuote ? 50 : 14)) {
         retryTimer = window.setTimeout(() => locateSearchTarget(attempt + 1), 80)
       } else {
         onHighlightChange(null)

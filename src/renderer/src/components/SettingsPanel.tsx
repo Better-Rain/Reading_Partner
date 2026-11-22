@@ -55,6 +55,7 @@ export function SettingsPanel({
       <div className="provider-list">
         {providers.map((provider) => {
           const configured = configuredProviderIds.has(provider.id)
+          const localProvider = /(?:localhost|127\.0\.0\.1):18080(?:\/|$)/i.test(provider.baseUrl)
 
           return (
             <article className="provider-item" key={provider.id}>
@@ -130,9 +131,9 @@ export function SettingsPanel({
               <div className="provider-tags">
                 {provider.supportsThinking && <span>thinking</span>}
                 {provider.supportsLongContext && <span>long context</span>}
-                <span className={configured ? 'tag-ok' : 'tag-warn'}>
+                <span className={configured || localProvider ? 'tag-ok' : 'tag-warn'}>
                   <KeyRound size={12} />
-                  {configured ? 'key saved' : 'no key'}
+                  {localProvider ? 'local ready' : configured ? 'key saved' : 'no key'}
                 </span>
               </div>
               <div className="key-row">

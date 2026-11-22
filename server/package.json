@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "name": "reading-partner-server",
+  "version": "1.0.0",
+  "dependencies": {
+    "@tesseract.js-data/eng": "1.0.0",
+    "tesseract.js": "7.0.0",
+    "pdfjs-dist": "4.8.69",
+    "@tesseract.js-data/chi_sim": "1.0.0",
+    "sql.js": "1.14.1"
+  }
+}

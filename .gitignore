@@ -13,4 +13,17 @@ release/
 *.sqlite
 *.sqlite3
 *.db
-
+# Private deployment inputs and local credentials
+/private-deploy/
+*.pair
+*.pem
+*.der
+*.key
+*.p12
+*.keystore
+*.mobileprovision
+*.dpapi
+owner-initial-password
+devices.json
+secrets.json
+__pycache__/

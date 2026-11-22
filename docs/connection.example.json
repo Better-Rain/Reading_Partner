@@ -1,0 +1,9 @@
+{
+  "port": 8443,
+  "windowsHost": "192.0.2.10",
+  "sshHost": "library-host",
+  "androidHosts": ["192.0.2.10", "127.0.0.1"],
+  "appleHosts": ["192.0.2.10"],
+  "binds": ["127.0.0.1", "192.0.2.10"],
+  "androidDevice": "android"
+}

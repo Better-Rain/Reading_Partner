@@ -1,8 +1,8 @@
+import type { ReadingLink } from '../../shared/readingLinks'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, WheelEvent } from 'react'
 import { PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { pdfjs } from 'react-pdf'
-import type { Source } from 'react-pdf/dist/shared/types.js'
 import {
   AIProviderRecord,
   AnnotationRecord,
@@ -21,6 +21,7 @@ import {
   TemporarySearchHighlight
 } from './components/AnnotationOverlay'
 import { InspectorTabBar, type InspectorTab } from './components/InspectorTabBar'
+import { LibraryBoard } from './components/LibraryBoard'
 import { LibraryPanel } from './components/LibraryPanel'
 import {
   AnnotationColorPreset,
@@ -52,7 +53,7 @@ import { useAIConversations } from './hooks/useAIConversations'
 import { useVocabularyActions } from './hooks/useVocabularyActions'
 import { useAnnotationActions } from './hooks/useAnnotationActions'
 import { useAIRunActions } from './hooks/useAIRunActions'
-import { getStoredReaderName, toPdfBlobUrl } from './readerLocalState'
+import { readerNameKey, getStoredReaderName, toPdfBlobUrl } from './readerLocalState'
 
 type PanelTab = InspectorTab
 type SelectionState = {
@@ -149,7 +150,20 @@ function App(): JSX.Element {
   const [selection, setSelection] = useState<SelectionState | null>(null)
   const [pageNumber, setPageNumber] = useState(1)
   const [pageCount, setPageCount] = useState(0)
-  const [scale, setScale] = useState(1.08)
+  const [scale, setScale] = useState(() => Math.min(1.08, window.innerWidth / 660))
+  const [boardTools, setBoardTools] = useState<HTMLDivElement | null>(null)
+  const [boardChatHost, setBoardChatHost] = useState<HTMLDivElement | null>(null)
+  const [boardVisible, setBoardVisible] = useState(true)
+  const [boardEntry, setBoardEntry] = useState<{ scope: string | null; chat: string } | null>(null)
+  const [mobileTab, setMobileTab] = useState<'library' | 'reader' | 'tools'>('library')
+  const [readingOrigin, setReadingOrigin] = useState<{ messageId: string; conversationId: string; documentId: string; notice: string | undefined } | null>(null)
+  const [annotationFocus, setAnnotationFocus] = useState<AnnotationRecord | null>(null)
+  const dismissAnnotationFocus = useEventCallback(() => setAnnotationFocus(null))
+  useEffect(() => {
+    if (annotationFocus && (annotationFocus.pageNumber !== pageNumber || annotationFocus.documentId !== activeDocument?.id)) {
+      setAnnotationFocus(null)
+    }
+  }, [activeDocument?.id, annotationFocus, pageNumber])
   const [isPanMode, setIsPanMode] = useState(false)
   const [isPanning, setIsPanning] = useState(false)
   const [isWindowMaximized, setIsWindowMaximized] = useState(false)
@@ -180,18 +194,13 @@ function App(): JSX.Element {
     [annotations, pageNumber]
   )
   const visibleCurrentPageAnnotations = useMemo(
-    () =>
-      annotationFilters.showOnPdf
-        ? currentPageAnnotations.filter((annotation) =>
-            annotationFilters.syncToPdf
-              ? matchesAnnotationFilters(annotation, annotationFilters, pageNumber, {
-                  includePageScope: false,
-                  includeQuery: true
-                })
-              : true
-          )
-        : [],
-    [annotationFilters, currentPageAnnotations, pageNumber]
+    () => currentPageAnnotations.filter(annotation =>
+      annotation.id === annotationFocus?.id || (annotationFilters.showOnPdf &&
+        (!annotationFilters.syncToPdf || matchesAnnotationFilters(annotation, annotationFilters, pageNumber, {
+          includePageScope: false, includeQuery: true
+        })))
+    ),
+    [annotationFilters, annotationFocus, currentPageAnnotations, pageNumber]
   )
   const currentPageSearchHighlight = useMemo(
     () =>
@@ -200,7 +209,17 @@ function App(): JSX.Element {
         : null,
     [pageNumber, temporarySearchHighlight]
   )
-  const pdfFile = useMemo<Source | null>(() => (pdfUrl ? { url: pdfUrl } : null), [pdfUrl])
+  const pdfFile = useMemo(() => {
+    if (!pdfUrl) return null
+    if (!pdfUrl.startsWith('/pdf/')) return { url: pdfUrl }
+    return {
+      url: new URL(pdfUrl, location.origin).href,
+      httpHeaders: { 'X-RP-Session': document.querySelector<HTMLMetaElement>('meta[name="rp-session"]')?.content ?? '' },
+      disableStream: true,
+      disableAutoFetch: true,
+      rangeChunkSize: 256 * 1024
+    }
+  }, [pdfUrl])
 
   const configuredProviderIds = useMemo(
     () => new Set(keyStatus.filter((item) => item.configured).map((item) => item.providerId)),
@@ -213,13 +232,23 @@ function App(): JSX.Element {
   )
 
   useEffect(() => {
-    void refreshLibrary()
+    let mounted = true
+    void window.readingPartner.listDocuments().then(async list => {
+      if (!mounted) return
+      setDocuments(list)
+      await openAccountLink(list)
+    }).catch(error => setStatus(String(error)))
     void refreshProviders()
     void refreshDictionarySources()
+    if(location.protocol !== 'https:') return () => { mounted = false }
+    const refresh = () => { if(!document.hidden) void refreshLibrary().catch(console.error) }
+    window.addEventListener('focus',refresh)
+    document.addEventListener('visibilitychange',refresh)
+    return () => {mounted = false;window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',refresh)}
   }, [])
 
   useEffect(() => {
-    window.localStorage.setItem('reading-partner.reader-name', readerName.trim() || '本机读者')
+    window.localStorage.setItem(readerNameKey(), readerName.trim() || '本机读者')
   }, [readerName])
 
   useReaderPan(panStateRef, readerSurfaceRef, suppressSelectionRef, setIsPanning)
@@ -311,9 +340,10 @@ function App(): JSX.Element {
     setDictionarySources(sources)
   }
 
-  const refreshAnnotations = async (documentId: string): Promise<void> => {
+  const refreshAnnotations = async (documentId: string): Promise<AnnotationRecord[]> => {
     const list = await window.readingPartner.listAnnotations(documentId)
     setAnnotations(list)
+    return list
   }
 
   const refreshVocabulary = async (documentId: string): Promise<void> => {
@@ -433,7 +463,6 @@ function App(): JSX.Element {
     pageCount,
     pageNumber,
     readyProvider,
-    readerName,
     selectedAnnotationColor,
     selectionRects: selection?.rects ?? [],
     selectionText: selection?.text ?? null,
@@ -451,6 +480,61 @@ function App(): JSX.Element {
     setStatus,
     setVocabulary
   })
+
+  const openAnnotation = (annotation: AnnotationRecord): void => {
+    setTemporarySearchHighlight(null)
+    setActiveSearchTarget(null)
+    setBoardVisible(false)
+    setMobileTab('reader')
+    setAnnotationInteractionMode('inspect')
+    setPageNumber(annotation.pageNumber)
+    setAnnotationFocus({ ...annotation })
+  }
+
+  const openReadingLink = (target: ReadingLink, messageId: string): void => {
+    if (!activeDocument || !activeConversationId) return
+    const note = target.kind === 'note' ? annotations.find(item => item.id === target.id && item.documentId === activeDocument.id) : undefined
+    const page = target.kind === 'page' ? target.page : note?.pageNumber
+    const quote = target.kind === 'page' ? target.quote : note?.selectedText
+    const validPage = page && page >= 1 && page <= pageCount ? page : null
+    const notice = validPage ? undefined : target.kind === 'note' ? '这条批注已撤销或删除' : '此页码不在当前文档中'
+    setReadingOrigin({ messageId, conversationId: activeConversationId, documentId: activeDocument.id, notice })
+    if (note && validPage) {
+      openAnnotation(note)
+      return
+    }
+    setAnnotationFocus(null)
+    setBoardVisible(false)
+    setMobileTab('reader')
+    setTemporarySearchHighlight(null)
+    setActiveSearchTarget(null)
+    if (!validPage) return
+    setPageNumber(validPage)
+    if (quote) {
+      setActiveSearchTarget({ nonce: Date.now(), exactQuote: true, query: quote, result: {
+        id: messageId, documentId: activeDocument.id, pageNumber: validPage, chunkIndex: 0, text: quote, snippet: quote, score: 0
+      } })
+    } else if (validPage !== pageNumber) requestReaderViewportReset()
+    else readerSurfaceRef.current?.scrollTo({top: 0})
+    setStatus(`已打开第 ${validPage} 页`)
+  }
+
+  const returnToChat = (): void => {
+    if (!readingOrigin) return
+    setIsInspectorCollapsed(false)
+    setActiveTab('ai')
+    setIsChatDrawerOpen(true)
+    setMobileTab('tools')
+    requestAnimationFrame(() => {
+      const message = document.getElementById(`chat-${readingOrigin.messageId}`)
+      message?.focus({ preventScroll: true })
+      message?.scrollIntoView({ block: 'center' })
+    })
+    setReadingOrigin(null)
+    setAnnotationFocus(null)
+    setActiveSearchTarget(null)
+    setTemporarySearchHighlight(null)
+  }
 
   const clearSearch = (): void => {
     setSearchQuery('')
@@ -491,13 +575,19 @@ function App(): JSX.Element {
     }
   }
 
-  const loadDocument = async (document: DocumentRecord): Promise<void> => {
+  const loadDocument = async (document: DocumentRecord, targetPage?: number, entry?: URLSearchParams): Promise<void> => {
+    if (location.protocol === 'https:' && !entry) {
+      const latest = await window.readingPartner.listDocuments()
+      setDocuments(latest)
+      document = latest.find(item => item.id === document.id) ?? document
+    }
     setStatus(`正在打开 ${document.title}`)
     setPdfError(null)
     loadedPdfRef.current = null
-    const data = await window.readingPartner.readPdf(document.id)
-    const nextUrl = toPdfBlobUrl(data)
-    const initialPageNumber = getInitialPageNumber(document)
+    const nextUrl = location.protocol === 'https:'
+      ? `/pdf/${encodeURIComponent(document.id)}`
+      : toPdfBlobUrl(await window.readingPartner.readPdf(document.id))
+    const initialPageNumber = clampPageNumber(targetPage ?? document.lastPageNumber, document.pageCount)
     setActiveDocument(document)
     requestReaderViewportReset()
     setPdfUrl((currentUrl) => {
@@ -506,6 +596,8 @@ function App(): JSX.Element {
       }
       return nextUrl
     })
+    setBoardVisible(false)
+    setMobileTab('reader')
     setPageNumber(initialPageNumber)
     setSelection(null)
     setSelectionNoteDraft('')
@@ -517,13 +609,49 @@ function App(): JSX.Element {
     setChatDraft('')
     setChatTitleDraft('')
     setIsChatDrawerOpen(false)
-    await Promise.all([
+    const [notes, , conversations] = await Promise.all([
       refreshAnnotations(document.id),
       refreshVocabulary(document.id),
       refreshAIConversations(document.id)
     ])
     setStatus(`已打开 ${document.title}`)
+    if (entry?.has('note')) {
+      const note = notes.find(item => item.id === entry.get('note'))
+      if (note) openAnnotation(note)
+      else setStatus('这条批注已删除，已打开原页')
+    } else if (entry?.has('chat')) {
+      const chat = conversations.find(item => item.id === entry.get('chat'))
+      if (chat) {
+        await selectAIConversation(chat.id)
+        showCompanion()
+      } else setStatus('找不到这段共读对话')
+    }
   }
+
+  const showCompanion = () => {
+    setActiveTab('ai')
+    setIsInspectorCollapsed(false)
+    setMobileTab('tools')
+  }
+
+  const openAccountLink = useEventCallback(async (list: DocumentRecord[]) => {
+    const entry = new URLSearchParams(location.search)
+    if (!entry.has('book') && !entry.has('board')) return
+    history.replaceState(history.state, '', location.pathname)
+    if (entry.has('book')) {
+      const book = list.find(item => item.id === entry.get('book'))
+      if (!book) { setStatus('这本书已不在书库中'); return }
+      const page = Number(entry.get('page'))
+      await loadDocument(book, Number.isSafeInteger(page) && page > 0 ? page : undefined, entry)
+    } else {
+      const scope = entry.get('board') || null
+      const chat = entry.get('chat')
+      if (chat && (await window.readingPartner.listBoardConversations(scope)).some(item => item.id === chat)) {
+        setBoardEntry({ scope, chat })
+        showCompanion()
+      } else setStatus('找不到这段书库共读对话')
+    }
+  })
 
   const openPdf = async (): Promise<void> => {
     const result: OpenPdfResult | null = await window.readingPartner.openPdfDialog()
@@ -544,6 +672,8 @@ function App(): JSX.Element {
       }
       return nextUrl
     })
+    setBoardVisible(false)
+    setMobileTab('reader')
     setPageNumber(initialPageNumber)
     setSelection(null)
     resetAnnotationUndoStack()
@@ -561,11 +691,11 @@ function App(): JSX.Element {
   }
 
   const loadOcrPdfDocument = async (): Promise<PdfJsDocument> => {
-    if (!pdfUrl) {
+    if (!pdfFile) {
       throw new Error('PDF 尚未加载')
     }
 
-    const task = pdfjs.getDocument(pdfUrl) as { promise: Promise<PdfJsDocument> }
+    const task = pdfjs.getDocument(pdfFile) as { promise: Promise<PdfJsDocument> }
     return task.promise
   }
 
@@ -781,6 +911,7 @@ function App(): JSX.Element {
   }
 
   useReaderShortcuts({
+    enabled: !boardVisible,
     hasDocument: Boolean(activeDocument),
     hasSelection: Boolean(selection),
     onCreateHighlight: () => void createAnnotation('highlight'),
@@ -890,10 +1021,10 @@ function App(): JSX.Element {
   }
 
   const handleLibraryLoadDocument = useEventCallback((document: DocumentRecord) => {
-    void loadDocument(document)
+    void loadDocument(document).catch(error => { setStatus(String(error)); window.alert(String(error)) })
   })
   const handleOpenPdf = useEventCallback(() => {
-    void openPdf()
+    void openPdf().catch(error => { setStatus(String(error)); window.alert(String(error)) })
   })
   const handleToggleLibraryCollapsed = useEventCallback(() => {
     setIsLibraryCollapsed((value) => !value)
@@ -946,7 +1077,9 @@ function App(): JSX.Element {
   })
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-mobile-tab={mobileTab}>
+      <nav className="mobile-nav" aria-label="阅读分区">{([['library','书库'],['reader','阅读'],['tools','笔记与工具']] as const).map(([tab,label]) =>
+        <button key={tab} aria-pressed={mobileTab===tab} onClick={() => {setMobileTab(tab); if(tab==='library'){setIsLibraryCollapsed(false); void refreshLibrary()} if(tab==='tools')setIsInspectorCollapsed(false)}}>{label}</button>)}</nav>
       <WindowTitlebar
         isMaximized={isWindowMaximized}
         onClose={() => void window.readingPartner.closeWindow()}
@@ -963,6 +1096,7 @@ function App(): JSX.Element {
           .join(' ')}
       >
       <LibraryPanel
+        onOverview={() => { setBoardVisible(true); setMobileTab('reader'); void refreshLibrary() }}
         activeDocumentId={activeDocument?.id ?? null}
         currentPageAnnotationCount={currentPageAnnotations.length}
         documents={documents}
@@ -973,19 +1107,28 @@ function App(): JSX.Element {
         onToggleCollapsed={handleToggleLibraryCollapsed}
       />
 
-      <main className="reader-column">
+      <main className="reader-column" id="reader" data-overview={boardVisible}>
+
+        {readingOrigin && readingOrigin.documentId === activeDocument?.id && readingOrigin.conversationId === activeConversationId && isChatDrawerOpen && activeTab === 'ai' && (
+          <section className="reading-origin" aria-label="聊天引用">
+            <button className="text-button" onClick={returnToChat}>返回对话</button>
+            {readingOrigin.notice && <span role="status">{readingOrigin.notice}</span>}
+          </section>
+        )}
         <ReaderToolbar
+          boardToolsRef={boardVisible ? setBoardTools : null}
           annotationInteractionMode={annotationInteractionMode}
           colorPresets={annotationColorPresets}
-          hasDocument={Boolean(activeDocument)}
+          hasDocument={!boardVisible && Boolean(activeDocument)}
+          canZoom={boardVisible || Boolean(activeDocument)}
           isOcrRunning={isOcrRunning}
           isTextIndexing={isTextIndexingActive}
           isPanMode={isPanMode}
           pageCount={pageCount}
           pageNumber={pageNumber}
           selectedAnnotationColor={selectedAnnotationColor}
-          status={status}
-          title={activeDocument?.title ?? '未选择 PDF'}
+          status={boardVisible ? `${documents.length} 本书` : status}
+          title={boardVisible ? '书库线索板' : activeDocument?.title ?? '未选择 PDF'}
           onAnnotationInteractionModeChange={handleAnnotationInteractionModeChange}
           onColorChange={handleColorChange}
           onCancelTextIndex={handleCancelTextIndex}
@@ -1000,7 +1143,16 @@ function App(): JSX.Element {
           onZoomOut={handleZoomOut}
         />
 
+      <LibraryBoard key={boardEntry?.chat ?? 'library'} initialChat={boardEntry} chatHost={boardChatHost} onShowChat={showCompanion} visible={boardVisible} toolbar={boardTools} presets={annotationColorPresets} documents={documents} provider={readyProvider ?? null}
+        canResume={Boolean(activeDocument)} onClose={() => setBoardVisible(false)} onOpen={(doc, page) => {
+          setBoardVisible(false)
+          setMobileTab('reader')
+          void loadDocument(doc, page).catch(error => { setStatus(String(error)); window.alert(String(error)) })
+        }}/>
+
         <ReaderSurface
+          annotationFocus={annotationFocus}
+          onDismissFocus={dismissAnnotationFocus}
           annotations={visibleCurrentPageAnnotations}
           file={pdfFile}
           interactionMode={annotationInteractionMode}
@@ -1095,6 +1247,7 @@ function App(): JSX.Element {
 
         {activeTab === 'notes' && (
           <NotesPanel
+            key={activeDocument?.id}
             annotations={annotations}
             currentPageNumber={pageNumber}
             filters={annotationFilters}
@@ -1107,11 +1260,7 @@ function App(): JSX.Element {
             onExportReadingMarks={() => void exportReadingMarks()}
             onImportReadingMarks={() => void importReadingMarks()}
             onFiltersChange={setAnnotationFilters}
-            onJump={(annotation) => {
-              requestReaderViewportReset()
-              setPageNumber(annotation.pageNumber)
-              setStatus(`已跳转到第 ${annotation.pageNumber} 页`)
-            }}
+            onJump={openAnnotation}
             onSaveNote={(note) => void createAnnotation('note', note || '空白页边注')}
             onUpdateAnnotation={(id, note, color) => void updateAnnotation(id, note, color)}
           />
@@ -1131,6 +1280,8 @@ function App(): JSX.Element {
                 result
               })
               requestReaderViewportReset()
+              setBoardVisible(false)
+              setMobileTab('reader')
               setPageNumber(result.pageNumber)
               setStatus(`已跳转到第 ${result.pageNumber} 页，正在定位搜索片段`)
             }}
@@ -1139,8 +1290,10 @@ function App(): JSX.Element {
           />
         )}
 
-        {activeTab === 'ai' && (
+        {activeTab === 'ai' && boardVisible && <div ref={setBoardChatHost} className="board-chat-host"/>}
+        {activeTab === 'ai' && !boardVisible && (
           <AiPanel
+            onReadingLink={openReadingLink}
             aiRun={aiRun}
             aiOperations={aiOperations}
             chatDraft={chatDraft}
@@ -1153,7 +1306,7 @@ function App(): JSX.Element {
             readyProvider={readyProvider}
             selection={selection?.text ?? null}
             activeConversationId={activeConversationId}
-            onAskDocument={(question) => void askDocumentQuestion(question)}
+            onAskDocument={(question, annotatePage) => void askDocumentQuestion(question, annotatePage)}
             onCancelRun={() => void cancelCurrentAIRun()}
             onCloseConversation={() => setIsChatDrawerOpen(false)}
             onCreateConversation={startNewAIConversation}
